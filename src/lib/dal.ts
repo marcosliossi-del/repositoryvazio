@@ -472,3 +472,127 @@ export const getTasks = cache(async (userId: string, role: string) => {
     },
   })
 })
+
+// ─── Team ─────────────────────────────────────────────────────────────────────
+
+export const getTeamMembers = cache(async () => {
+  return prisma.user.findMany({
+    orderBy: [{ role: 'asc' }, { name: 'asc' }],
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      active: true,
+      avatarUrl: true,
+      createdAt: true,
+      _count: { select: { managedClients: true } },
+    },
+  })
+})
+
+// ─── Anti-churn ───────────────────────────────────────────────────────────────
+
+export type AtRiskClient = {
+  id: string
+  name: string
+  slug: string
+  primaryManager: string | null
+  consecutiveRuimWeeks: number
+  riskLevel: 'ALTO' | 'MÉDIO' | 'BAIXO'
+  worstMetric: string | null
+  worstPct: number | null
+}
+
+export const getAtRiskClients = cache(async (userId: string, role: string): Promise<AtRiskClient[]> => {
+  const where: Prisma.ClientWhereInput =
+    role === 'ADMIN' ? { status: 'ACTIVE' } : { status: 'ACTIVE', assignments: { some: { userId } } }
+
+  // Fetch clients with last 6 weeks of health scores
+  const sixWeeksAgo = new Date()
+  sixWeeksAgo.setDate(sixWeeksAgo.getDate() - 42)
+
+  const clients = await prisma.client.findMany({
+    where,
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      assignments: {
+        where: { isPrimary: true },
+        include: { user: { select: { name: true } } },
+        take: 1,
+      },
+      healthScores: {
+        where: { periodStart: { gte: sixWeeksAgo } },
+        orderBy: { periodStart: 'desc' },
+        select: { periodStart: true, status: true, metric: true, achievementPct: true },
+      },
+    },
+    orderBy: { name: 'asc' },
+  })
+
+  const result: AtRiskClient[] = []
+
+  for (const client of clients) {
+    // Group by week (periodStart)
+    const byWeek = new Map<string, typeof client.healthScores>()
+    for (const hs of client.healthScores) {
+      const key = hs.periodStart.toISOString().slice(0, 10)
+      if (!byWeek.has(key)) byWeek.set(key, [])
+      byWeek.get(key)!.push(hs)
+    }
+
+    // Sort weeks descending
+    const weeks = Array.from(byWeek.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+
+    if (weeks.length === 0) continue
+
+    // Determine overall status per week
+    const weekStatuses = weeks.map(([, scores]) => {
+      const isRuim = scores.some((s) => s.status === 'RUIM')
+      const isRegular = scores.some((s) => s.status === 'REGULAR')
+      return isRuim ? 'RUIM' : isRegular ? 'REGULAR' : 'OTIMO'
+    })
+
+    // Count consecutive RUIM weeks from the most recent
+    let consecutiveRuimWeeks = 0
+    for (const status of weekStatuses) {
+      if (status === 'RUIM') consecutiveRuimWeeks++
+      else break
+    }
+
+    if (consecutiveRuimWeeks === 0) continue // not at risk
+
+    // Worst metric (lowest pct in most recent week)
+    const latestWeekScores = weeks[0][1]
+    const ruimScores = latestWeekScores
+      .filter((s) => s.status === 'RUIM')
+      .sort((a, b) => Number(a.achievementPct) - Number(b.achievementPct))
+
+    const worst = ruimScores[0] ?? null
+
+    result.push({
+      id: client.id,
+      name: client.name,
+      slug: client.slug,
+      primaryManager: client.assignments[0]?.user.name ?? null,
+      consecutiveRuimWeeks,
+      riskLevel: consecutiveRuimWeeks >= 3 ? 'ALTO' : consecutiveRuimWeeks >= 1 ? 'MÉDIO' : 'BAIXO',
+      worstMetric: worst ? (metricLabels[worst.metric] ?? worst.metric) : null,
+      worstPct: worst ? Math.round(Number(worst.achievementPct)) : null,
+    })
+  }
+
+  // Sort by risk: ALTO first, then by consecutive weeks desc
+  result.sort((a, b) => {
+    if (a.riskLevel !== b.riskLevel) {
+      const rank = { ALTO: 0, MÉDIO: 1, BAIXO: 2 }
+      return rank[a.riskLevel] - rank[b.riskLevel]
+    }
+    return b.consecutiveRuimWeeks - a.consecutiveRuimWeeks
+  })
+
+  return result
+})

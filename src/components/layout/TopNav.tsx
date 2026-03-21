@@ -1,6 +1,6 @@
 'use client'
 
-import { Bell, Search, LogOut, ChevronDown } from 'lucide-react'
+import { Bell, Search, LogOut, ChevronDown, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { logout } from '@/app/actions/auth'
@@ -114,15 +114,25 @@ export function TopNav({ session, viewMode = 'ADMIN', onViewModeChange, unreadAl
                   <p className="text-sm font-medium text-[#EBEBEB] truncate">{session.name}</p>
                   <p className="text-xs text-[#87919E] truncate mt-0.5">{session.email}</p>
                 </div>
-                <form action={logout}>
-                  <button
-                    type="submit"
-                    className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#EF4444] hover:bg-[#38435C]/50 transition-colors"
-                  >
-                    <LogOut size={14} />
-                    Sair
-                  </button>
-                </form>
+                <Link
+                  href="/settings"
+                  onClick={() => setUserMenuOpen(false)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-[#EBEBEB] hover:bg-[#38435C]/50 transition-colors"
+                >
+                  <Settings size={14} className="text-[#87919E]" />
+                  Configurações
+                </Link>
+                <div className="border-t border-[#38435C] mt-1 pt-1">
+                  <form action={logout}>
+                    <button
+                      type="submit"
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-[#EF4444] hover:bg-[#38435C]/50 transition-colors"
+                    >
+                      <LogOut size={14} />
+                      Sair
+                    </button>
+                  </form>
+                </div>
               </div>
             </>
           )}

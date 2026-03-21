@@ -13,6 +13,7 @@ import {
   BarChart3,
   Bot,
   Bell,
+  UsersRound,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react'
@@ -42,6 +43,12 @@ const navigation = [
     label: 'IA',
     items: [
       { name: 'Agentes IA Suporte', href: '/ai-agents', icon: Bot },
+    ],
+  },
+  {
+    label: 'AGÊNCIA',
+    items: [
+      { name: 'Equipe', href: '/team', icon: UsersRound },
     ],
   },
 ]
