@@ -30,6 +30,8 @@ export type ClientHealthSummary = {
 
 export const getDashboardData = cache(async (userId: string, role: string) => {
   const { start: weekStart } = getWeekRange()
+  const prevWeekStart = new Date(weekStart)
+  prevWeekStart.setDate(prevWeekStart.getDate() - 7)
 
   // For MANAGER: only their clients. For ADMIN: all clients.
   const clientsWhere: Prisma.ClientWhereInput =
@@ -46,7 +48,7 @@ export const getDashboardData = cache(async (userId: string, role: string) => {
         take: 1,
       },
       healthScores: {
-        where: { periodStart: { gte: weekStart } },
+        where: { periodStart: { gte: prevWeekStart } },
         orderBy: { calculatedAt: 'desc' },
       },
     },
@@ -54,11 +56,26 @@ export const getDashboardData = cache(async (userId: string, role: string) => {
   })
 
   const summaries: ClientHealthSummary[] = clients.map((client) => {
-    const scores = client.healthScores
-    const avgPct =
-      scores.length > 0
-        ? scores.reduce((sum, s) => sum + Number(s.achievementPct), 0) / scores.length
+    const allScores = client.healthScores
+    const scores = allScores.filter((s) => s.periodStart >= weekStart)
+    const prevScores = allScores.filter((s) => s.periodStart < weekStart)
+
+    const avgOf = (arr: typeof scores) =>
+      arr.length > 0
+        ? arr.reduce((sum, s) => sum + Number(s.achievementPct), 0) / arr.length
         : 0
+
+    const avgPct = avgOf(scores)
+    const prevAvgPct = avgOf(prevScores)
+
+    const trend: 'up' | 'down' | 'stable' =
+      scores.length === 0 || prevScores.length === 0
+        ? 'stable'
+        : avgPct > prevAvgPct + 2
+        ? 'up'
+        : avgPct < prevAvgPct - 2
+        ? 'down'
+        : 'stable'
 
     // Overall = worst status
     const overallStatus: HealthStatus =
@@ -78,7 +95,7 @@ export const getDashboardData = cache(async (userId: string, role: string) => {
       primaryManager: client.assignments[0]?.user.name ?? null,
       overallStatus,
       achievementPct: Math.round(avgPct),
-      trend: 'stable' as const, // TODO: compare with previous week
+      trend,
       metrics: scores.slice(0, 4).map((s) => ({
         name: s.metric,
         status: s.status,
@@ -313,4 +330,145 @@ export const getClientMetricHistory = cache(async (clientId: string, days = 14):
   }
 
   return result
+})
+
+// ─── Clients for select dropdowns ─────────────────────────────────────────────
+
+export const getClientsForSelect = cache(async (userId: string, role: string) => {
+  const where: Prisma.ClientWhereInput =
+    role === 'ADMIN' ? {} : { assignments: { some: { userId } } }
+
+  return prisma.client.findMany({
+    where,
+    select: { id: true, name: true, slug: true },
+    orderBy: { name: 'asc' },
+  })
+})
+
+// ─── Operations ───────────────────────────────────────────────────────────────
+
+export const getOperations = cache(async (
+  userId: string,
+  role: string,
+  filters: { clientId?: string; search?: string; page?: number } = {}
+) => {
+  const { clientId, search, page = 1 } = filters
+  const PER_PAGE = 20
+
+  const where: Prisma.OperationWhereInput = {
+    ...(role !== 'ADMIN' && { client: { assignments: { some: { userId } } } }),
+    ...(clientId && { clientId }),
+    ...(search && {
+      OR: [
+        { subject: { contains: search, mode: 'insensitive' } },
+        { requested: { contains: search, mode: 'insensitive' } },
+        { done: { contains: search, mode: 'insensitive' } },
+      ],
+    }),
+  }
+
+  const [items, total] = await Promise.all([
+    prisma.operation.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * PER_PAGE,
+      take: PER_PAGE,
+      include: {
+        client: { select: { name: true, slug: true } },
+        user: { select: { name: true } },
+      },
+    }),
+    prisma.operation.count({ where }),
+  ])
+
+  return { items, total, page, perPage: PER_PAGE, totalPages: Math.ceil(total / PER_PAGE) }
+})
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+export type ReportWeek = {
+  label: string        // "17/03 – 23/03"
+  start: Date
+  end: Date
+  offset: number       // 0 = current, -1 = last week, etc.
+}
+
+export function getWeekOptions(count = 8): ReportWeek[] {
+  const weeks: ReportWeek[] = []
+  for (let i = 0; i > -count; i--) {
+    const anchor = new Date()
+    anchor.setDate(anchor.getDate() + i * 7)
+    const { start, end } = getWeekRange(anchor)
+    const fmt = (d: Date) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+    weeks.push({ label: `${fmt(start)} – ${fmt(end)}`, start, end, offset: i })
+  }
+  return weeks
+}
+
+export const getReportData = cache(async (
+  clientId: string,
+  weekStart: Date,
+  weekEnd: Date
+) => {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { id: true, name: true, slug: true },
+  })
+  if (!client) return null
+
+  const goals = await prisma.goal.findMany({
+    where: {
+      clientId,
+      period: 'WEEKLY',
+      startDate: { lte: weekEnd },
+      endDate: { gte: weekStart },
+    },
+    include: {
+      healthScores: {
+        where: { periodStart: { gte: weekStart, lte: weekEnd } },
+        orderBy: { calculatedAt: 'desc' },
+        take: 1,
+      },
+    },
+  })
+
+  const metrics = goals.map((g) => {
+    const hs = g.healthScores[0]
+    return {
+      metric: g.metric,
+      label: metricLabels[g.metric] ?? g.metric,
+      target: Number(g.targetValue),
+      actual: hs ? Number(hs.actualValue) : null,
+      status: hs?.status ?? null,
+      pct: hs ? Math.round(Number(hs.achievementPct)) : null,
+      lowerIsBetter: ['CPL', 'CPA', 'CPC'].includes(g.metric),
+      unit: ['CPL', 'CPA', 'CPC', 'INVESTMENT', 'SPEND'].includes(g.metric)
+        ? 'R$'
+        : g.metric === 'CTR'
+        ? '%'
+        : g.metric === 'ROAS'
+        ? 'x'
+        : '',
+    }
+  })
+
+  return { client, metrics }
+})
+
+// ─── Tasks ────────────────────────────────────────────────────────────────────
+
+export const getTasks = cache(async (userId: string, role: string) => {
+  const where =
+    role === 'ADMIN'
+      ? {}
+      : { assignedTo: userId }
+
+  return prisma.task.findMany({
+    where,
+    orderBy: [{ status: 'asc' }, { dueDate: 'asc' }, { createdAt: 'desc' }],
+    include: {
+      client: { select: { name: true, slug: true } },
+      user: { select: { name: true } },
+    },
+  })
 })
