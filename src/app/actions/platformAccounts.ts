@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { requireSession } from '@/lib/dal'
 import { MetaAdsClient } from '@/services/meta-ads/client'
+import { GA4Client } from '@/services/ga4/client'
 
 export interface LinkAccountState {
   error?: string
@@ -86,6 +87,75 @@ export async function validateMetaToken(
     const msg = err instanceof Error ? err.message : String(err)
     return { valid: false, accounts: [], error: msg }
   }
+}
+
+/**
+ * Validates a GA4 property ID using the service account key from env.
+ */
+export async function validateGA4Property(
+  propertyId: string
+): Promise<{ valid: boolean; error?: string }> {
+  await requireSession()
+
+  try {
+    const client = new GA4Client()
+    return await client.validateProperty(propertyId)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { valid: false, error: msg }
+  }
+}
+
+/**
+ * Links a GA4 property to a client.
+ * Uses the shared service account key configured in env vars.
+ */
+export async function linkGA4Account(
+  clientId: string,
+  propertyId: string,
+  name?: string
+): Promise<LinkAccountState> {
+  const session = await requireSession()
+
+  if (session.role !== 'ADMIN') {
+    const assignment = await prisma.clientAssignment.findFirst({
+      where: { clientId, userId: session.userId },
+    })
+    if (!assignment) {
+      return { error: 'Você não tem permissão para vincular contas a este cliente.' }
+    }
+  }
+
+  // Normalize: store without "properties/" prefix
+  const externalId = propertyId.replace(/^properties\//, '')
+
+  const existing = await prisma.platformAccount.findUnique({
+    where: { clientId_platform_externalId: { clientId, platform: 'GA4', externalId } },
+  })
+
+  if (existing) {
+    if (existing.active) {
+      return { error: 'Esta propriedade GA4 já está vinculada a este cliente.' }
+    }
+    await prisma.platformAccount.update({
+      where: { id: existing.id },
+      data: { active: true, name: name ?? existing.name },
+    })
+    revalidatePath('/clients')
+    return { success: true, accountName: name ?? existing.name ?? externalId }
+  }
+
+  await prisma.platformAccount.create({
+    data: {
+      clientId,
+      platform: 'GA4',
+      externalId,
+      name: name ?? `GA4 — ${externalId}`,
+    },
+  })
+
+  revalidatePath('/clients')
+  return { success: true, accountName: name ?? `GA4 — ${externalId}` }
 }
 
 /**
