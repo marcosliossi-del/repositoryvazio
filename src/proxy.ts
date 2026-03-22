@@ -11,7 +11,7 @@ function getSecretKey() {
   return new TextEncoder().encode(secret)
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isPublic = PUBLIC_ROUTES.includes(pathname)
   const isProtected = PROTECTED_PREFIX.some((p) => pathname.startsWith(p))
