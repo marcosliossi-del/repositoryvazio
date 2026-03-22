@@ -1,7 +1,5 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-
 export const FROM_EMAIL = process.env.FROM_EMAIL ?? 'alertas@performli.com.br'
 export const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
@@ -20,6 +18,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<boolean> {
     console.warn('[email] RESEND_API_KEY not set — skipping email:', opts.subject)
     return false
   }
+  const resend = new Resend(process.env.RESEND_API_KEY)
 
   try {
     const { error } = await resend.emails.send({
