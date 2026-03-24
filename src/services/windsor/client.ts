@@ -58,7 +58,9 @@ const GA4_FIELDS = [
   'active_users',        // usuários ativos (não "users")
   'engagement_rate',     // snake_case (não "engagementRate")
   'ecommerce_purchases', // compras de e-commerce (não o genérico "conversions")
-  'totalRevenue',        // camelCase confirmado válido
+  'totalRevenue',        // camelCase GA4 nativo
+  'total_revenue',       // snake_case (Windsor às vezes normaliza assim)
+  'new_users',           // novos usuários únicos — base para CAC
 ].join(',')
 
 // ── Tipos de resposta ─────────────────────────────────────────────────────────
@@ -104,8 +106,11 @@ export interface WindsorGA4Row {
   active_users?: number | string
   engagement_rate?: number | string
   ecommerce_purchases?: number | string  // snake_case (padrão Windsor GA4)
-  ecommercePurchases?: number | string   // camelCase (fallback — Windsor às vezes usa o nome nativo da GA4 API)
-  totalRevenue?: number | string
+  ecommercePurchases?: number | string   // camelCase (fallback)
+  totalRevenue?: number | string         // camelCase GA4 nativo
+  total_revenue?: number | string        // snake_case (Windsor às vezes normaliza)
+  new_users?: number | string            // novos usuários (para CAC)
+  newUsers?: number | string             // camelCase fallback
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

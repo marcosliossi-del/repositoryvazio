@@ -22,6 +22,7 @@ import { getWeekRange, getMonthRange } from '@/lib/utils'
 const LOWER_IS_BETTER: Set<MetricType> = new Set([
   'CPL',
   'CPA',
+  'CAC',
   'CPC',
   'SPEND',
   'CPS',
@@ -112,6 +113,13 @@ function aggregateSnapshots(snapshots: Snapshot[], metric: MetricType): number |
     const spend = snapshots.filter((x) => toNum(x.spend) > 0).reduce((s, x) => s + toNum(x.spend), 0)
     const purchases = purchasesNoDouble()
     return spend > 0 && purchases > 0 ? spend / purchases : null
+  }
+
+  if (metric === 'CAC') {
+    // CAC = spend / novos usuários GA4 (visitantes únicos pela primeira vez)
+    const spend    = snapshots.filter((x) => toNum(x.spend) > 0).reduce((s, x) => s + toNum(x.spend), 0)
+    const newUsers = snapshots.filter((x) => toNum(x.spend) === 0).reduce((s, x) => s + toNum((x as { newUsers?: unknown }).newUsers), 0)
+    return spend > 0 && newUsers > 0 ? spend / newUsers : null
   }
 
   if (metric === 'CONVERSIONS') {

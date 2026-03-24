@@ -117,16 +117,22 @@ export function transformWindsorMetaCampaign(row: WindsorMetaCampaignRow): Winds
 //   conversions     → ecommerce_purchases  (compras reais, não todos os eventos de conversão)
 //   conversionValue → totalRevenue
 
-export function transformWindsorGA4(row: WindsorGA4Row): WindsorTransformedSnapshot {
-  const sessions  = Math.round(toNum(row.sessions))
-  const pageViews = Math.round(toNum(row.screen_page_views))
-  const users     = Math.round(toNum(row.active_users))
+export interface WindsorGA4TransformedSnapshot extends WindsorTransformedSnapshot {
+  newUsers: number | null
+}
+
+export function transformWindsorGA4(row: WindsorGA4Row): WindsorGA4TransformedSnapshot {
+  const sessions   = Math.round(toNum(row.sessions))
+  const pageViews  = Math.round(toNum(row.screen_page_views))
+  const users      = Math.round(toNum(row.active_users))
   const engagementRate = toNum(row.engagement_rate) * 100 // decimal → %
-  const revenue   = toNum(row.totalRevenue) || null
-  const frequency = sessions > 0 ? pageViews / sessions : 0
+  const frequency  = sessions > 0 ? pageViews / sessions : 0
+
+  // Windsor alterna entre camelCase e snake_case dependendo da versão — tentamos os dois
+  const revenue      = toNum(row.totalRevenue ?? row.total_revenue) || null
+  const newUsersRaw  = Math.round(toNum(row.new_users ?? row.newUsers)) || null
 
   // Usa ecommerce_purchases (compras reais) — evita inflar com page_view/scroll events.
-  // Windsor alterna entre snake_case e camelCase, então tentamos os dois.
   const ecommercePurchases = Math.round(toNum(row.ecommerce_purchases ?? row.ecommercePurchases)) || null
 
   return {
@@ -143,5 +149,6 @@ export function transformWindsorGA4(row: WindsorGA4Row): WindsorTransformedSnaps
     roas: null,
     cpl:  null,
     rawData: row,
+    newUsers: newUsersRaw,
   }
 }

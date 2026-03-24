@@ -12,7 +12,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { WindsorClient } from '@/services/windsor/client'
-import { transformWindsorGA4 } from '@/services/windsor/transformers'
+import { transformWindsorGA4, type WindsorGA4TransformedSnapshot } from '@/services/windsor/transformers'
 import { recalculateClientHealth } from '@/services/health-scorer'
 import { dispatchAlertsForClient } from '@/services/alert-dispatcher'
 
@@ -79,35 +79,38 @@ export async function syncGA4Account(
     for (const row of rows) {
       const snapshot = transformWindsorGA4(row)
 
+      const ga4snap = snapshot as WindsorGA4TransformedSnapshot
       await prisma.metricSnapshot.upsert({
         where: { platformAccountId_date: { platformAccountId, date: snapshot.date } },
         update: {
-          impressions: snapshot.impressions,
-          clicks: snapshot.clicks,
-          reach: snapshot.reach,
-          frequency: snapshot.frequency,
-          ctr: snapshot.ctr,
-          conversions: snapshot.conversions,
+          impressions:     snapshot.impressions,
+          clicks:          snapshot.clicks,
+          reach:           snapshot.reach,
+          newUsers:        ga4snap.newUsers,
+          frequency:       snapshot.frequency,
+          ctr:             snapshot.ctr,
+          conversions:     snapshot.conversions,
           conversionValue: snapshot.conversionValue,
-          rawData: snapshot.rawData as object,
-          syncedAt: new Date(),
+          rawData:         snapshot.rawData as object,
+          syncedAt:        new Date(),
         },
         create: {
-          clientId: account.clientId,
+          clientId:        account.clientId,
           platformAccountId,
-          date: snapshot.date,
-          spend: snapshot.spend,
-          impressions: snapshot.impressions,
-          clicks: snapshot.clicks,
-          reach: snapshot.reach,
-          frequency: snapshot.frequency,
-          ctr: snapshot.ctr,
-          cpc: snapshot.cpc,
-          conversions: snapshot.conversions,
+          date:            snapshot.date,
+          spend:           snapshot.spend,
+          impressions:     snapshot.impressions,
+          clicks:          snapshot.clicks,
+          reach:           snapshot.reach,
+          newUsers:        ga4snap.newUsers,
+          frequency:       snapshot.frequency,
+          ctr:             snapshot.ctr,
+          cpc:             snapshot.cpc,
+          conversions:     snapshot.conversions,
           conversionValue: snapshot.conversionValue,
-          roas: snapshot.roas,
-          cpl: snapshot.cpl,
-          rawData: snapshot.rawData as object,
+          roas:            snapshot.roas,
+          cpl:             snapshot.cpl,
+          rawData:         snapshot.rawData as object,
         },
       })
       recordsUpserted++

@@ -71,7 +71,7 @@ function KpiCard({
 }
 
 function goalValueFormat(metric: string, value: number) {
-  const currency = ['INVESTMENT', 'SPEND', 'CPL', 'CPA', 'CPC', 'FATURAMENTO', 'TICKET_MEDIO', 'CPS', 'CPM']
+  const currency = ['INVESTMENT', 'SPEND', 'CPL', 'CPA', 'CAC', 'CPC', 'FATURAMENTO', 'TICKET_MEDIO', 'CPS', 'CPM']
   const pct = ['CTR', 'TAXA_CONVERSAO']
   const xRate = ['ROAS']
   if (currency.includes(metric)) return formatCurrency(value)
@@ -282,16 +282,17 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
                 trend={kpis.ticketMedioTrend}
               />
               <KpiCard
-                label="CPS (Custo/Sessão)"
-                value={kpis.cps !== null ? `R$ ${kpis.cps.toFixed(2)}` : '—'}
-                trend={kpis.cpsTrend}
-                lowerIsBetter
-              />
-              <KpiCard
-                label="CPA / CAC"
+                label="CPA (Custo por Venda)"
                 value={kpis.cpa !== null ? formatCurrency(kpis.cpa) : '—'}
                 trend={kpis.cpaTrend}
                 lowerIsBetter
+              />
+              <KpiCard
+                label="CAC (Custo p/ Novo Cliente)"
+                value={kpis.cac !== null ? formatCurrency(kpis.cac) : '—'}
+                trend={kpis.cacTrend}
+                lowerIsBetter
+                sub={kpis.cac !== null ? 'invest / novos usuários GA4' : 'requer sync GA4'}
               />
             </div>
           </div>

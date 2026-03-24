@@ -432,6 +432,9 @@ export type ClientKPIs = {
   cpmTrend: number | null
   cpa: number | null
   cpaTrend: number | null
+  // CAC — custo por aquisição de novo cliente (spend / novos usuários GA4)
+  cac: number | null
+  cacTrend: number | null
 }
 
 export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs> => {
@@ -473,14 +476,19 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
     const adRevenue   = ads.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
     const revenue     = ga4Revenue > 0 ? ga4Revenue : adRevenue
 
+    // CAC — custo por novo cliente: spend / novos usuários GA4
+    // (newUsers = visitantes únicos que chegam pela primeira vez no site)
+    const newUsers = ga4.reduce((s, x) => s + (x.newUsers ?? 0), 0)
+
     return {
-      spend, sessions, purchases, revenue, adImpr,
+      spend, sessions, purchases, revenue, adImpr, newUsers,
       roas:          spend > 0 && revenue > 0 ? revenue / spend : null,
       ticketMedio:   purchases > 0 && revenue > 0 ? revenue / purchases : null,
       taxaConversao: sessions > 0 && purchases > 0 ? (purchases / sessions) * 100 : null,
       cps:           sessions > 0 && spend > 0 ? spend / sessions : null,
       cpm:           adImpr > 0 && spend > 0 ? (spend / adImpr) * 1000 : null,
       cpa:           purchases > 0 && spend > 0 ? spend / purchases : null,
+      cac:           newUsers > 0 && spend > 0 ? spend / newUsers : null,
     }
   }
 
@@ -521,6 +529,8 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
     cpmTrend: pctChange(curr.cpm, prev.cpm),
     cpa: curr.cpa,
     cpaTrend: pctChange(curr.cpa, prev.cpa),
+    cac: curr.cac,
+    cacTrend: pctChange(curr.cac, prev.cac),
   }
 })
 
@@ -529,7 +539,8 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
 export const metricLabels: Record<string, string> = {
   ROAS: 'ROAS',
   CPL: 'CPL',
-  CPA: 'CPA',
+  CPA: 'CPA (Custo por Venda)',
+  CAC: 'CAC (Custo por Novo Cliente)',
   INVESTMENT: 'Investimento',
   CONVERSIONS: 'Conversões',
   SALES: 'Vendas',

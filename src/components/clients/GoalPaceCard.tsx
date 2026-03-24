@@ -5,7 +5,7 @@ import type { GoalPaceMetrics } from '@/lib/dal'
 
 function formatValue(metric: string, value: number | null) {
   if (value === null) return '—'
-  const currency = ['INVESTMENT', 'SPEND', 'CPL', 'CPA', 'CPC', 'FATURAMENTO', 'TICKET_MEDIO', 'CPS', 'CPM']
+  const currency = ['INVESTMENT', 'SPEND', 'CPL', 'CPA', 'CAC', 'CPC', 'FATURAMENTO', 'TICKET_MEDIO', 'CPS', 'CPM']
   const pct = ['CTR', 'TAXA_CONVERSAO']
   if (currency.includes(metric)) return formatCurrency(value)
   if (pct.includes(metric)) return `${value.toFixed(2)}%`

@@ -134,6 +134,7 @@ enum MetricType {
   TAXA_CONVERSAO   // conversões / sessões × 100
   CPS              // custo por sessão (spend / sessões)
   CPM              // custo por mil impressões
+  CAC              // custo por aquisição de NOVO cliente (spend / novos usuários GA4)
 }
 
 model MetricSnapshot {
@@ -146,6 +147,7 @@ model MetricSnapshot {
   impressions     Int?
   clicks          Int?
   reach           Int?
+  newUsers        Int?     // GA4: novos usuários únicos (base para CAC)
   frequency       Decimal? @db.Decimal(8, 4)
   ctr             Decimal? @db.Decimal(8, 4)
   cpc             Decimal? @db.Decimal(10, 4)
