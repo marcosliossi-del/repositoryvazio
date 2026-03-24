@@ -1174,3 +1174,214 @@ export const getManagerStats = cache(async (): Promise<ManagerStat[]> => {
 
   return result
 })
+
+// ─── Manager MRR (Receita Recorrente Mensal gerenciada) ───────────────────────
+
+export type ManagerMRR = {
+  userId: string
+  name: string
+  mrr: number          // soma dos budgets mensais (metas SPEND/INVESTMENT MONTHLY)
+  clientCount: number
+  avgBudgetPerClient: number
+}
+
+export const getManagersMRR = cache(async (): Promise<ManagerMRR[]> => {
+  const today = new Date()
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+  const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+
+  const clients = await prisma.client.findMany({
+    where: { status: 'ACTIVE' },
+    include: {
+      assignments: {
+        where: { isPrimary: true },
+        include: { user: { select: { id: true, name: true } } },
+        take: 1,
+      },
+      goals: {
+        where: {
+          period: 'MONTHLY',
+          metric: { in: ['SPEND', 'INVESTMENT'] },
+          startDate: { lte: monthEnd },
+          endDate: { gte: monthStart },
+        },
+        select: { targetValue: true },
+        take: 1,
+      },
+    },
+  })
+
+  const managerMap = new Map<string, { name: string; mrr: number; clientCount: number }>()
+
+  for (const client of clients) {
+    const mgr = client.assignments[0]?.user
+    if (!mgr) continue
+
+    const budget = client.goals[0] ? Number(client.goals[0].targetValue) : 0
+
+    if (!managerMap.has(mgr.id)) {
+      managerMap.set(mgr.id, { name: mgr.name, mrr: 0, clientCount: 0 })
+    }
+    const entry = managerMap.get(mgr.id)!
+    entry.mrr += budget
+    entry.clientCount += 1
+  }
+
+  return [...managerMap.entries()]
+    .map(([userId, { name, mrr, clientCount }]) => ({
+      userId,
+      name,
+      mrr,
+      clientCount,
+      avgBudgetPerClient: clientCount > 0 ? Math.round(mrr / clientCount) : 0,
+    }))
+    .sort((a, b) => b.mrr - a.mrr)
+})
+
+// ─── Churn risk score history ──────────────────────────────────────────────────
+
+export type ChurnRiskPoint = {
+  weekStart: string
+  score: number
+  consecutiveRuimWeeks: number
+  avgAchievementPct: number
+  trend: number
+}
+
+export const getClientChurnHistory = cache(async (clientId: string, weeks = 12): Promise<ChurnRiskPoint[]> => {
+  const since = new Date()
+  since.setDate(since.getDate() - weeks * 7)
+
+  const scores = await prisma.churnRiskScore.findMany({
+    where: { clientId, weekStart: { gte: since } },
+    orderBy: { weekStart: 'asc' },
+  })
+
+  return scores.map((s) => {
+    const factors = s.factors as Record<string, unknown>
+    return {
+      weekStart: s.weekStart.toISOString().slice(0, 10),
+      score: s.score,
+      consecutiveRuimWeeks: (factors?.consecutiveRuimWeeks as number) ?? 0,
+      avgAchievementPct: (factors?.avgAchievementPct as number) ?? 0,
+      trend: (factors?.trend as number) ?? 0,
+    }
+  })
+})
+
+// ─── Weekly checklist ─────────────────────────────────────────────────────────
+
+export const getWeeklyChecklist = cache(async (managerId: string) => {
+  const { start: weekStart } = getWeekRange()
+
+  const checklist = await prisma.weeklyChecklist.findUnique({
+    where: { managerId_weekStart: { managerId, weekStart } },
+  })
+
+  return checklist
+})
+
+// ─── Weekly report for client ─────────────────────────────────────────────────
+
+export const getClientWeeklyReport = cache(async (clientId: string) => {
+  const { start: weekStart } = getWeekRange()
+
+  // Try current week first, fall back to most recent
+  const report = await prisma.weeklyReport.findFirst({
+    where: { clientId },
+    orderBy: { weekStart: 'desc' },
+  })
+
+  return report
+})
+
+// ─── Client chat ──────────────────────────────────────────────────────────────
+
+export const getClientChat = cache(async (clientId: string) => {
+  const chat = await prisma.clientChat.findUnique({
+    where: { clientId },
+    include: {
+      messages: {
+        orderBy: { createdAt: 'asc' },
+        take: 100,
+        include: {
+          user: { select: { id: true, name: true, avatarUrl: true, role: true } },
+        },
+      },
+    },
+  })
+
+  return chat
+})
+
+// ─── Goal pace metrics (daily / weekly targets from monthly goal) ─────────────
+
+export type GoalPaceMetrics = {
+  goalId: string
+  metric: string
+  period: string
+  targetValue: number
+  dailyTarget: number | null
+  weeklyTarget: number | null
+  actualValue: number | null
+  paceExpected: number | null   // what should have been achieved by today
+  paceAchievement: number | null  // actual / paceExpected * 100
+  projectedMonth: number | null   // pace extrapolated to full month
+  status: HealthStatus | null
+  achievementPct: number | null
+}
+
+export const getGoalPaceMetrics = cache(async (clientId: string): Promise<GoalPaceMetrics[]> => {
+  const today = new Date()
+  const daysElapsed = today.getDate()
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+  const { start: monthStart, end: monthEnd } = getMonthRange(today)
+
+  const goals = await prisma.goal.findMany({
+    where: {
+      clientId,
+      period: 'MONTHLY',
+      startDate: { lte: monthEnd },
+      endDate: { gte: monthStart },
+    },
+    include: {
+      healthScores: {
+        where: { periodStart: { gte: monthStart } },
+        orderBy: { calculatedAt: 'desc' },
+        take: 1,
+      },
+    },
+  })
+
+  return goals.map((goal): GoalPaceMetrics => {
+    const target = Number(goal.targetValue)
+    const dailyTarget = daysInMonth > 0 ? target / daysInMonth : null
+    const weeklyTarget = daysInMonth > 0 ? (target / daysInMonth) * 7 : null
+    const hs = goal.healthScores[0]
+    const actualValue = hs ? Number(hs.actualValue) : null
+    const paceExpected = dailyTarget !== null ? dailyTarget * daysElapsed : null
+    const paceAchievement =
+      actualValue !== null && paceExpected !== null && paceExpected > 0
+        ? (actualValue / paceExpected) * 100
+        : null
+    const projectedMonth =
+      actualValue !== null && daysElapsed > 0
+        ? (actualValue / daysElapsed) * daysInMonth
+        : null
+
+    return {
+      goalId: goal.id,
+      metric: goal.metric,
+      period: goal.period,
+      targetValue: target,
+      dailyTarget,
+      weeklyTarget,
+      actualValue,
+      paceExpected,
+      paceAchievement,
+      projectedMonth,
+      status: hs?.status ?? null,
+      achievementPct: hs ? Math.round(Number(hs.achievementPct)) : null,
+    }
+  })
+})

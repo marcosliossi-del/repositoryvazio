@@ -25,11 +25,13 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  managedClients  ClientAssignment[]
-  tasks           Task[]
-  operations      Operation[]
-  aiConversations AIConversation[]
-  alerts          Alert[]           @relation("TriggeredAlerts")
+  managedClients    ClientAssignment[]
+  tasks             Task[]
+  operations        Operation[]
+  aiConversations   AIConversation[]
+  alerts            Alert[]              @relation("TriggeredAlerts")
+  chatMessages      ClientChatMessage[]
+  weeklyChecklists  WeeklyChecklist[]
 }
 
 // ─── CLIENTS ─────────────────────────────────────────────────────────────────
@@ -61,6 +63,9 @@ model Client {
   operations       Operation[]
   tasks            Task[]
   insights         ClientInsight[]
+  chat             ClientChat?
+  churnRiskScores  ChurnRiskScore[]
+  weeklyReports    WeeklyReport[]
 }
 
 model ClientAssignment {
@@ -224,6 +229,7 @@ enum AlertType {
   STATUS_IMPROVED_TO_OTIMO
   SYNC_FAILED
   BUDGET_EXHAUSTED
+  BUDGET_WARNING
   KPI_DROP_24H
   KPI_SPIKE_24H
 }
@@ -336,6 +342,77 @@ model ClientInsight {
   createdAt DateTime @default(now())
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+// ─── CLIENT CHAT ─────────────────────────────────────────────────────────────
+
+model ClientChat {
+  id        String   @id @default(cuid())
+  clientId  String   @unique
+  createdAt DateTime @default(now())
+
+  client   Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messages ClientChatMessage[]
+}
+
+model ClientChatMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  userId    String
+  content   String
+  createdAt DateTime @default(now())
+
+  chat ClientChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User       @relation(fields: [userId], references: [id])
+
+  @@index([chatId, createdAt])
+}
+
+// ─── WEEKLY CHECKLIST ─────────────────────────────────────────────────────────
+
+model WeeklyChecklist {
+  id        String   @id @default(cuid())
+  managerId String
+  weekStart DateTime @db.Date
+  items     Json     // ChecklistItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  manager User @relation(fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([managerId, weekStart])
+  @@index([managerId, weekStart])
+}
+
+// ─── CHURN RISK SCORE ─────────────────────────────────────────────────────────
+
+model ChurnRiskScore {
+  id        String   @id @default(cuid())
+  clientId  String
+  weekStart DateTime @db.Date
+  score     Int      // 0–100
+  factors   Json     // breakdown of scoring factors
+  createdAt DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, weekStart])
+  @@index([clientId, weekStart])
+}
+
+// ─── WEEKLY REPORT ────────────────────────────────────────────────────────────
+
+model WeeklyReport {
+  id          String    @id @default(cuid())
+  clientId    String
+  weekStart   DateTime  @db.Date
+  content     String    // formatted text report
+  generatedAt DateTime  @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, weekStart])
+  @@index([clientId, weekStart])
 }
 
 // ─── SYNC LOG ────────────────────────────────────────────────────────────────

@@ -1,10 +1,11 @@
 import { requireSession } from '@/lib/dal'
-import { getDashboardData, getClientsOperationalTable, getManagerStats } from '@/lib/dal'
+import { getDashboardData, getClientsOperationalTable, getManagerStats, getWeeklyChecklist } from '@/lib/dal'
 import { HealthSummaryCards } from '@/components/dashboard/HealthSummaryCards'
 import { ClientHealthGrid } from '@/components/dashboard/ClientHealthGrid'
 import { OperationalTableWithFilter } from '@/components/dashboard/OperationalTableWithFilter'
 import { ManagerCards } from '@/components/dashboard/ManagerCards'
 import { DashboardAIChat } from '@/components/dashboard/DashboardAIChat'
+import { WeeklyChecklistCard } from '@/components/dashboard/WeeklyChecklistCard'
 import { Card } from '@/components/ui/card'
 import {
   AlertTriangle,
@@ -24,17 +25,19 @@ const alertIcons = {
   STATUS_IMPROVED_TO_OTIMO: { icon: CheckCircle2, color: 'text-[#22C55E]' },
   SYNC_FAILED: { icon: AlertTriangle, color: 'text-[#EAB308]' },
   BUDGET_EXHAUSTED: { icon: AlertTriangle, color: 'text-[#EF4444]' },
+  BUDGET_WARNING: { icon: AlertTriangle, color: 'text-[#EAB308]' },
   KPI_DROP_24H: { icon: ArrowDownRight, color: 'text-[#EF4444]' },
   KPI_SPIKE_24H: { icon: ArrowUpRight, color: 'text-[#22C55E]' },
 }
 
 export default async function DashboardPage() {
   const session = await requireSession()
-  const [{ clients, totals, alerts, oscillationAlerts, lastSyncAt }, operationalRows, managerStats] =
+  const [{ clients, totals, alerts, oscillationAlerts, lastSyncAt }, operationalRows, managerStats, checklist] =
     await Promise.all([
       getDashboardData(session.userId, session.role),
       getClientsOperationalTable(session.userId, session.role),
       session.role === 'ADMIN' ? getManagerStats() : Promise.resolve([]),
+      getWeeklyChecklist(session.userId),
     ])
 
   return (
@@ -147,8 +150,15 @@ export default async function DashboardPage() {
           <ClientHealthGrid clients={clients} />
         </div>
 
-        {/* Alerts feed */}
-        <div className="space-y-3">
+        {/* Right column: Checklist + Alerts */}
+        <div className="space-y-4">
+          {/* Weekly Checklist */}
+          {checklist && (
+            <WeeklyChecklistCard items={checklist.items as Parameters<typeof WeeklyChecklistCard>[0]['items']} />
+          )}
+
+          {/* Alerts feed */}
+          <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#EBEBEB]">Alertas Recentes</h2>
             <a href="/alerts" className="text-xs text-[#95BBE2] hover:underline">
@@ -185,6 +195,7 @@ export default async function DashboardPage() {
               })}
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>

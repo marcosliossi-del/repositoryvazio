@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import {
   requireSession, getClientDetail, getClientMetricHistory,
-  getClientKPIs, metricLabels,
+  getClientKPIs, getGoalPaceMetrics, getClientChat, getClientWeeklyReport, metricLabels,
 } from '@/lib/dal'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardValue } from '@/components/ui/card'
@@ -18,6 +18,9 @@ import { LinkGA4Modal } from '@/components/clients/LinkGA4Modal'
 import { MetaSyncButton } from '@/components/clients/MetaSyncButton'
 import { GA4SyncButton } from '@/components/clients/GA4SyncButton'
 import { MetricsChartsGrid } from '@/components/clients/MetricsChartsGrid'
+import { ClientChatPanel } from '@/components/clients/ClientChatPanel'
+import { WeeklyReportCard } from '@/components/clients/WeeklyReportCard'
+import { GoalPaceCard } from '@/components/clients/GoalPaceCard'
 
 const platformColors: Record<string, string> = {
   META_ADS: '#1877F2',
@@ -76,13 +79,16 @@ function goalValueFormat(metric: string, value: number) {
 
 export default async function ClientDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
-  await requireSession()
+  const session = await requireSession()
   const client = await getClientDetail(slug)
   if (!client) notFound()
 
-  const [metricHistory, kpis] = await Promise.all([
+  const [metricHistory, kpis, paceGoals, chat, weeklyReport] = await Promise.all([
     getClientMetricHistory(client.id, 14),
     getClientKPIs(client.id),
+    getGoalPaceMetrics(client.id),
+    getClientChat(client.id),
+    getClientWeeklyReport(client.id),
   ])
 
   const weeklyGoals = client.goals.filter((g) => g.period === 'WEEKLY')
@@ -393,11 +399,40 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
         )}
       </div>
 
+      {/* ── Ritmo das Metas Mensais ───────────────────────────────────────── */}
+      {paceGoals.length > 0 && (
+        <GoalPaceCard
+          goals={paceGoals}
+          daysElapsed={kpis.daysElapsed}
+          daysInMonth={kpis.daysInMonth}
+        />
+      )}
+
       {/* Metric charts */}
       <div>
         <h2 className="text-sm font-semibold text-[#EBEBEB] mb-3">Histórico — últimos 14 dias</h2>
         <MetricsChartsGrid data={metricHistory} />
       </div>
+
+      {/* ── Relatório Semanal ─────────────────────────────────────────────── */}
+      <WeeklyReportCard
+        clientId={client.id}
+        clientSlug={slug}
+        existingReport={weeklyReport ? { content: weeklyReport.content, generatedAt: weeklyReport.generatedAt } : null}
+      />
+
+      {/* ── Chat do Cliente ───────────────────────────────────────────────── */}
+      {chat && (
+        <div>
+          <h2 className="text-sm font-semibold text-[#EBEBEB] mb-3">Chat Interno</h2>
+          <ClientChatPanel
+            chatId={chat.id}
+            clientSlug={slug}
+            messages={chat.messages}
+            currentUserId={session.userId}
+          />
+        </div>
+      )}
 
       {/* Recent operations */}
       {client.operations.length > 0 && (

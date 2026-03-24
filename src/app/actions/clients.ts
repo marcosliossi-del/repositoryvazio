@@ -44,6 +44,9 @@ export async function createClient(
       assignments: {
         create: { userId: assignedUserId, isPrimary: true },
       },
+      chat: {
+        create: {},
+      },
     },
   })
 

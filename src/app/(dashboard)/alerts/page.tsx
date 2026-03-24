@@ -13,6 +13,7 @@ const alertConfig: Record<AlertType, { icon: typeof AlertTriangle; color: string
   STATUS_IMPROVED_TO_OTIMO:  { icon: CheckCircle2,   color: 'text-[#22C55E]', label: 'Melhora para Ótimo' },
   SYNC_FAILED:               { icon: AlertTriangle,  color: 'text-[#EAB308]', label: 'Falha de Sync' },
   BUDGET_EXHAUSTED:          { icon: AlertTriangle,  color: 'text-[#EF4444]', label: 'Orçamento Esgotado' },
+  BUDGET_WARNING:            { icon: AlertTriangle,  color: 'text-[#EAB308]', label: 'Budget Quase Esgotado' },
   KPI_DROP_24H:              { icon: ArrowDownRight, color: 'text-[#EF4444]', label: 'Queda 24h' },
   KPI_SPIKE_24H:             { icon: ArrowUpRight,   color: 'text-[#22C55E]', label: 'Alta 24h' },
 }
