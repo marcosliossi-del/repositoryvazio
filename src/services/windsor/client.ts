@@ -36,11 +36,11 @@ const GA4_FIELDS = [
   'date',
   'account_id',
   'sessions',
-  'page_views',
-  'users',              // active users
-  'engagement_rate',    // decimal, ex: 0.65
+  'pageviews',          // Windsor usa "pageviews", não "page_views"
+  'users',
+  'engagementRate',     // Windsor usa camelCase para métricas GA4
   'conversions',
-  'revenue',            // total revenue
+  'totalRevenue',       // Windsor usa "totalRevenue", não "revenue"
 ].join(',')
 
 // ── Tipos de resposta ─────────────────────────────────────────────────────────
@@ -66,11 +66,11 @@ export interface WindsorGA4Row {
   date: string
   account_id?: string
   sessions?: number | string
-  page_views?: number | string
+  pageviews?: number | string
   users?: number | string
-  engagement_rate?: number | string
+  engagementRate?: number | string
   conversions?: number | string
-  revenue?: number | string
+  totalRevenue?: number | string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -68,11 +68,11 @@ export function transformWindsorMeta(row: WindsorMetaRow): WindsorTransformedSna
 
 export function transformWindsorGA4(row: WindsorGA4Row): WindsorTransformedSnapshot {
   const sessions = Math.round(toNum(row.sessions))
-  const pageViews = Math.round(toNum(row.page_views))
+  const pageViews = Math.round(toNum(row.pageviews))
   const users = Math.round(toNum(row.users))
-  const engagementRate = toNum(row.engagement_rate) * 100 // decimal → %
+  const engagementRate = toNum(row.engagementRate) * 100 // decimal → %
   const conversions = Math.round(toNum(row.conversions)) || null
-  const revenue = toNum(row.revenue) || null
+  const revenue = toNum(row.totalRevenue) || null
   const frequency = sessions > 0 ? pageViews / sessions : 0
 
   return {
