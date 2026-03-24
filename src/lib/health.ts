@@ -20,9 +20,14 @@ export function achievementPercent(actual: number, target: number): number {
 }
 
 export const healthLabels: Record<HealthStatus, string> = {
-  OTIMO: 'Ótimo',
-  REGULAR: 'Regular',
-  RUIM: 'Ruim',
+  OTIMO: 'Saudável',
+  REGULAR: 'Atenção',
+  RUIM: 'Crítico',
+}
+
+export function formatHealthStatus(status: 'OTIMO' | 'REGULAR' | 'RUIM'): string {
+  const labels = { OTIMO: 'Saudável', REGULAR: 'Atenção', RUIM: 'Crítico' }
+  return labels[status]
 }
 
 export const healthColors: Record<HealthStatus, string> = {
