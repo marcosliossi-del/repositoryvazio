@@ -128,9 +128,8 @@ export function transformWindsorGA4(row: WindsorGA4Row): WindsorGA4TransformedSn
   const engagementRate = toNum(row.engagement_rate) * 100 // decimal → %
   const frequency  = sessions > 0 ? pageViews / sessions : 0
 
-  // Windsor alterna entre camelCase e snake_case dependendo da versão — tentamos os dois
-  const revenue      = toNum(row.totalRevenue ?? row.total_revenue) || null
-  const newUsersRaw  = Math.round(toNum(row.new_users ?? row.newUsers)) || null
+  const revenue      = toNum(row.totalRevenue) || null
+  const newUsersRaw  = Math.round(toNum(row.newUsers)) || null
 
   // Usa ecommerce_purchases (compras reais) — evita inflar com page_view/scroll events.
   const ecommercePurchases = Math.round(toNum(row.ecommerce_purchases ?? row.ecommercePurchases)) || null

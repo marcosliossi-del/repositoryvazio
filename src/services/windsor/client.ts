@@ -25,7 +25,6 @@ const META_FIELDS = [
   'frequency',
   'ctr',
   'cpc',
-  'conversions',
   'actions_purchase',         // contagem de compras/conversões de compra
   'action_values_purchase',   // receita de compras (para calcular ROAS)
 ].join(',')
@@ -58,9 +57,8 @@ const GA4_FIELDS = [
   'active_users',        // usuários ativos (não "users")
   'engagement_rate',     // snake_case (não "engagementRate")
   'ecommerce_purchases', // compras de e-commerce (não o genérico "conversions")
-  'totalRevenue',        // camelCase GA4 nativo
-  'total_revenue',       // snake_case (Windsor às vezes normaliza assim)
-  'new_users',           // novos usuários únicos — base para CAC
+  'totalRevenue',        // camelCase GA4 nativo — único nome aceito pelo Windsor
+  'newUsers',            // novos usuários únicos — base para CAC
 ].join(',')
 
 // ── Tipos de resposta ─────────────────────────────────────────────────────────
