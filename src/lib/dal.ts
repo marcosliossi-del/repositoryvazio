@@ -279,7 +279,6 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
   const daysElapsed = today.getDate()
   const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
 
-  // Same period last month
   const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
   const lastMonthSameDay = new Date(today.getFullYear(), today.getMonth() - 1, daysElapsed)
   lastMonthSameDay.setHours(23, 59, 59, 999)
@@ -289,20 +288,36 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
     prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: lastMonthStart, lte: lastMonthSameDay } } }),
   ])
 
+  /**
+   * Separamos GA4 (spend=0) dos ad platforms (spend>0) para evitar misturar:
+   *  - sessões GA4 com cliques de anúncio (Meta)
+   *  - impressões de página (GA4) com impressões de anúncio (Meta) para CPM
+   *  - all-events-conversions (GA4) com purchase-conversions (Meta)
+   */
   function compute(snaps: typeof currSnaps) {
-    const spend = snaps.reduce((s, x) => s + Number(x.spend ?? 0), 0)
-    const revenue = snaps.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
-    const conversions = snaps.reduce((s, x) => s + (x.conversions ?? 0), 0)
-    const sessions = snaps.reduce((s, x) => s + (x.clicks ?? 0), 0)
-    const impressions = snaps.reduce((s, x) => s + (x.impressions ?? 0), 0)
+    const ga4  = snaps.filter((x) => Number(x.spend ?? 0) === 0)
+    const ads  = snaps.filter((x) => Number(x.spend ?? 0) > 0)
+
+    const spend       = ads.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+    const adImpr      = ads.reduce((s, x) => s + (x.impressions ?? 0), 0)  // impressões de anúncio
+    const sessions    = ga4.reduce((s, x) => s + (x.clicks ?? 0), 0)       // sessões do site (GA4)
+
+    // Compras: ecommercePurchases do GA4 + actions_purchase do Meta (ambos já corrigidos nos transformers)
+    const purchases   = snaps.reduce((s, x) => s + (x.conversions ?? 0), 0)
+
+    // Faturamento: prefere GA4 totalRevenue (todas as vendas), cai em Meta se GA4 = 0
+    const ga4Revenue  = ga4.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+    const adRevenue   = ads.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+    const revenue     = ga4Revenue > 0 ? ga4Revenue : adRevenue
+
     return {
-      spend, revenue, conversions, sessions, impressions,
-      roas:          spend > 0 ? revenue / spend : null,
-      ticketMedio:   conversions > 0 ? revenue / conversions : null,
-      taxaConversao: sessions > 0 ? (conversions / sessions) * 100 : null,
-      cps:           sessions > 0 ? spend / sessions : null,
-      cpm:           impressions > 0 ? (spend / impressions) * 1000 : null,
-      cpa:           conversions > 0 ? spend / conversions : null,
+      spend, sessions, purchases, revenue, adImpr,
+      roas:          spend > 0 && revenue > 0 ? revenue / spend : null,
+      ticketMedio:   purchases > 0 && revenue > 0 ? revenue / purchases : null,
+      taxaConversao: sessions > 0 && purchases > 0 ? (purchases / sessions) * 100 : null,
+      cps:           sessions > 0 && spend > 0 ? spend / sessions : null,
+      cpm:           adImpr > 0 && spend > 0 ? (spend / adImpr) * 1000 : null,
+      cpa:           purchases > 0 && spend > 0 ? spend / purchases : null,
     }
   }
 
@@ -329,8 +344,8 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
     roas: curr.roas,
     roasTrend: pctChange(curr.roas, prev.roas),
     projecaoMes,
-    compras: curr.conversions,
-    comprasTrend: pctChange(curr.conversions, prev.conversions),
+    compras: curr.purchases,
+    comprasTrend: pctChange(curr.purchases, prev.purchases),
     taxaConversao: curr.taxaConversao,
     taxaConversaoTrend: pctChange(curr.taxaConversao, prev.taxaConversao),
     ticketMedio: curr.ticketMedio,

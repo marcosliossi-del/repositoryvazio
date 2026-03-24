@@ -49,32 +49,40 @@ function aggregateSnapshots(snapshots: Snapshot[], metric: MetricType): number |
   const toNum = (v: unknown) => (v != null ? Number(v) : 0)
 
   // ── Métricas derivadas (requerem numerador + denominador separados) ─────────
+  // GA4 tem spend=0; ad platforms (Meta/Google) têm spend>0.
+  // Sessões vêm do GA4 (clicks); spend/impressões vêm dos ad platforms.
   if (metric === 'TAXA_CONVERSAO') {
-    const totalConv = snapshots.reduce((s, x) => s + toNum(x.conversions), 0)
-    const totalSessions = snapshots.reduce((s, x) => s + toNum(x.clicks), 0)
-    return totalSessions > 0 ? (totalConv / totalSessions) * 100 : null
+    const purchases = snapshots.reduce((s, x) => s + toNum(x.conversions), 0)
+    const sessions  = snapshots
+      .filter((x) => toNum(x.spend) === 0)     // GA4 only
+      .reduce((s, x) => s + toNum(x.clicks), 0)
+    return sessions > 0 && purchases > 0 ? (purchases / sessions) * 100 : null
   }
 
   if (metric === 'TICKET_MEDIO') {
-    const totalRev = snapshots.reduce((s, x) => s + toNum(x.conversionValue), 0)
-    const totalConv = snapshots.reduce((s, x) => s + toNum(x.conversions), 0)
-    return totalConv > 0 ? totalRev / totalConv : null
+    const ga4Rev  = snapshots.filter((x) => toNum(x.spend) === 0).reduce((s, x) => s + toNum(x.conversionValue), 0)
+    const adRev   = snapshots.filter((x) => toNum(x.spend) > 0).reduce((s, x) => s + toNum(x.conversionValue), 0)
+    const revenue = ga4Rev > 0 ? ga4Rev : adRev
+    const purchases = snapshots.reduce((s, x) => s + toNum(x.conversions), 0)
+    return purchases > 0 && revenue > 0 ? revenue / purchases : null
   }
 
   if (metric === 'CPS') {
-    const totalSpend = snapshots.reduce((s, x) => s + toNum(x.spend), 0)
-    const totalSessions = snapshots.reduce((s, x) => s + toNum(x.clicks), 0)
-    return totalSessions > 0 ? totalSpend / totalSessions : null
+    const spend    = snapshots.filter((x) => toNum(x.spend) > 0).reduce((s, x) => s + toNum(x.spend), 0)
+    const sessions = snapshots.filter((x) => toNum(x.spend) === 0).reduce((s, x) => s + toNum(x.clicks), 0)
+    return sessions > 0 && spend > 0 ? spend / sessions : null
   }
 
   if (metric === 'CPM') {
-    const totalSpend = snapshots.reduce((s, x) => s + toNum(x.spend), 0)
-    const totalImpressions = snapshots.reduce((s, x) => s + toNum(x.impressions), 0)
-    return totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : null
+    const spend       = snapshots.filter((x) => toNum(x.spend) > 0).reduce((s, x) => s + toNum(x.spend), 0)
+    const adImpressions = snapshots.filter((x) => toNum(x.spend) > 0).reduce((s, x) => s + toNum(x.impressions), 0)
+    return adImpressions > 0 && spend > 0 ? (spend / adImpressions) * 1000 : null
   }
 
   if (metric === 'FATURAMENTO') {
-    const total = snapshots.reduce((s, x) => s + toNum(x.conversionValue), 0)
+    const ga4Rev = snapshots.filter((x) => toNum(x.spend) === 0).reduce((s, x) => s + toNum(x.conversionValue), 0)
+    const adRev  = snapshots.filter((x) => toNum(x.spend) > 0).reduce((s, x) => s + toNum(x.conversionValue), 0)
+    const total  = ga4Rev > 0 ? ga4Rev : adRev
     return total > 0 ? total : null
   }
 

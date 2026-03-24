@@ -36,11 +36,11 @@ const GA4_FIELDS = [
   'date',
   'account_id',
   'sessions',
-  'screen_page_views',  // page views (não "pageviews")
-  'active_users',       // usuários ativos (não "users")
-  'engagement_rate',    // snake_case (não "engagementRate")
-  'conversions',
-  'totalRevenue',       // camelCase confirmado válido
+  'screen_page_views',   // page views (não "pageviews")
+  'active_users',        // usuários ativos (não "users")
+  'engagement_rate',     // snake_case (não "engagementRate")
+  'ecommerce_purchases', // compras de e-commerce (não o genérico "conversions")
+  'totalRevenue',        // camelCase confirmado válido
 ].join(',')
 
 // ── Tipos de resposta ─────────────────────────────────────────────────────────
@@ -68,7 +68,8 @@ export interface WindsorGA4Row {
   screen_page_views?: number | string
   active_users?: number | string
   engagement_rate?: number | string
-  conversions?: number | string
+  ecommerce_purchases?: number | string  // snake_case (padrão Windsor GA4)
+  ecommercePurchases?: number | string   // camelCase (fallback — Windsor às vezes usa o nome nativo da GA4 API)
   totalRevenue?: number | string
 }
 

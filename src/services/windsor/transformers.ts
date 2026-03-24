@@ -24,14 +24,20 @@ export interface WindsorTransformedSnapshot {
 
 export function transformWindsorMeta(row: WindsorMetaRow): WindsorTransformedSnapshot {
   const spend = toNum(row.spend)
-  const conversions = toNum(row.conversions) || null
-  const purchaseCount = toNum(row.actions_purchase) || conversions
+
+  // Compras específicas (actions_purchase) — se indisponível usa conversions genérico como fallback
+  // para clientes de lead-gen que não têm pixel de compra
+  const allConversions = toNum(row.conversions) || null
+  const purchaseCount = toNum(row.actions_purchase) || allConversions
+
+  // Receita de compras
   const conversionValue = toNum(row.action_values_purchase) || null
 
   const roas: number | null = conversionValue && spend > 0
     ? Math.round((conversionValue / spend) * 10000) / 10000
     : null
 
+  // CPL: custo por lead (purchase ou fallback)
   const cpl: number | null = purchaseCount && spend > 0
     ? Math.round((spend / purchaseCount) * 100) / 100
     : null
@@ -40,12 +46,13 @@ export function transformWindsorMeta(row: WindsorMetaRow): WindsorTransformedSna
     date: new Date(row.date + 'T00:00:00'),
     spend,
     impressions: Math.round(toNum(row.impressions)),
-    clicks: Math.round(toNum(row.clicks)),
-    reach: Math.round(toNum(row.reach)),
-    frequency: Math.round(toNum(row.frequency) * 10000) / 10000,
-    ctr: Math.round(toNum(row.ctr) * 100) / 100,
-    cpc: Math.round(toNum(row.cpc) * 10000) / 10000,
-    conversions: conversions ? Math.round(conversions) : null,
+    clicks:      Math.round(toNum(row.clicks)),
+    reach:       Math.round(toNum(row.reach)),
+    frequency:   Math.round(toNum(row.frequency) * 10000) / 10000,
+    ctr:         Math.round(toNum(row.ctr) * 100) / 100,
+    cpc:         Math.round(toNum(row.cpc) * 10000) / 10000,
+    // ← agora armazena compras específicas (actions_purchase), não todas as conversões
+    conversions: purchaseCount ? Math.round(purchaseCount) : null,
     conversionValue,
     roas,
     cpl,
@@ -56,37 +63,39 @@ export function transformWindsorMeta(row: WindsorMetaRow): WindsorTransformedSna
 // ── GA4 ───────────────────────────────────────────────────────────────────────
 // Mapeamento:
 //   impressions     → screen_page_views
-//   clicks          → sessions
-//   reach           → users (active users)
-//   frequency       → pages per session (screen_page_views / sessions)
-//   ctr             → engagement_rate em % (0.65 → 65.00)
+//   clicks          → sessions  (sessões do site — denominador da taxa de conversão)
+//   reach           → active_users
+//   frequency       → páginas por sessão
+//   ctr             → engagement_rate em %
 //   spend / cpc     → 0 (GA4 não tem custo de mídia)
-//   conversions     → conversions
+//   conversions     → ecommerce_purchases  (compras reais, não todos os eventos de conversão)
 //   conversionValue → totalRevenue
-//   roas / cpl      → null
 
 export function transformWindsorGA4(row: WindsorGA4Row): WindsorTransformedSnapshot {
-  const sessions = Math.round(toNum(row.sessions))
+  const sessions  = Math.round(toNum(row.sessions))
   const pageViews = Math.round(toNum(row.screen_page_views))
-  const users = Math.round(toNum(row.active_users))
+  const users     = Math.round(toNum(row.active_users))
   const engagementRate = toNum(row.engagement_rate) * 100 // decimal → %
-  const conversions = Math.round(toNum(row.conversions)) || null
-  const revenue = toNum(row.totalRevenue) || null
+  const revenue   = toNum(row.totalRevenue) || null
   const frequency = sessions > 0 ? pageViews / sessions : 0
 
+  // Usa ecommerce_purchases (compras reais) — evita inflar com page_view/scroll events.
+  // Windsor alterna entre snake_case e camelCase, então tentamos os dois.
+  const ecommercePurchases = Math.round(toNum(row.ecommerce_purchases ?? row.ecommercePurchases)) || null
+
   return {
-    date: new Date(row.date + 'T00:00:00'),
-    spend: 0,
+    date:      new Date(row.date + 'T00:00:00'),
+    spend:     0,
     impressions: pageViews,
-    clicks: sessions,
-    reach: users,
+    clicks:    sessions,
+    reach:     users,
     frequency: Math.round(frequency * 10000) / 10000,
-    ctr: Math.round(engagementRate * 100) / 100,
-    cpc: 0,
-    conversions,
+    ctr:       Math.round(engagementRate * 100) / 100,
+    cpc:       0,
+    conversions:    ecommercePurchases,
     conversionValue: revenue,
     roas: null,
-    cpl: null,
+    cpl:  null,
     rawData: row,
   }
 }
