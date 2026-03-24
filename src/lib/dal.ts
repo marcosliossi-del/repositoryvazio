@@ -1390,3 +1390,78 @@ export const getGoalPaceMetrics = cache(async (clientId: string): Promise<GoalPa
     }
   })
 })
+
+// ─── Campaign breakdown (Meta Ads, por campanha/adset) ────────────────────────
+
+export type CampaignRow = {
+  campaignId: string
+  campaignName: string
+  adSetId: string   // '' = sem adset
+  adSetName: string | null
+  platform: string
+  spend: number
+  impressions: number
+  clicks: number
+  conversions: number
+  conversionValue: number
+  roas: number | null
+  cpl: number | null
+  spendShare: number  // % do total de spend do cliente no período
+}
+
+export const getClientCampaigns = cache(async (
+  clientId: string,
+  days = 7,
+): Promise<CampaignRow[]> => {
+  const since = new Date()
+  since.setDate(since.getDate() - days + 1)
+  since.setHours(0, 0, 0, 0)
+
+  const snaps = await prisma.campaignSnapshot.findMany({
+    where: { clientId, date: { gte: since } },
+    orderBy: { date: 'asc' },
+  })
+
+  if (snaps.length === 0) return []
+
+  // Aggregate per campaign+adset across all days in the period
+  const byKey = new Map<string, {
+    campaignId: string; campaignName: string
+    adSetId: string; adSetName: string | null
+    platform: string
+    spend: number; impressions: number; clicks: number
+    conversions: number; conversionValue: number
+  }>()
+
+  for (const s of snaps) {
+    const key = `${s.campaignId}||${s.adSetId}`
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        campaignId: s.campaignId,
+        campaignName: s.campaignName,
+        adSetId: s.adSetId,
+        adSetName: s.adSetName,
+        platform: s.platform,
+        spend: 0, impressions: 0, clicks: 0, conversions: 0, conversionValue: 0,
+      })
+    }
+    const agg = byKey.get(key)!
+    agg.spend          += Number(s.spend ?? 0)
+    agg.impressions    += s.impressions ?? 0
+    agg.clicks         += s.clicks ?? 0
+    agg.conversions    += s.conversions ?? 0
+    agg.conversionValue += Number(s.conversionValue ?? 0)
+  }
+
+  const rows = [...byKey.values()]
+  const totalSpend = rows.reduce((s, r) => s + r.spend, 0)
+
+  return rows
+    .map((r): CampaignRow => ({
+      ...r,
+      roas: r.spend > 0 && r.conversionValue > 0 ? r.conversionValue / r.spend : null,
+      cpl:  r.spend > 0 && r.conversions > 0 ? r.spend / r.conversions : null,
+      spendShare: totalSpend > 0 ? (r.spend / totalSpend) * 100 : 0,
+    }))
+    .sort((a, b) => b.spend - a.spend)
+})

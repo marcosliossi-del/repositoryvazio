@@ -30,6 +30,24 @@ const META_FIELDS = [
   'action_values_purchase',   // receita de compras (para calcular ROAS)
 ].join(',')
 
+// Nível de campanha + conjunto — inclui campaign_id/name e adset_id/name
+const META_CAMPAIGN_FIELDS = [
+  'date',
+  'account_id',
+  'campaign_id',
+  'campaign_name',
+  'adset_id',
+  'adset_name',
+  'spend',
+  'impressions',
+  'clicks',
+  'reach',
+  'ctr',
+  'cpc',
+  'actions_purchase',
+  'action_values_purchase',
+].join(',')
+
 // ── GA4 (googleanalytics4) ────────────────────────────────────────────────────
 // Windsor GA4 usa snake_case (não camelCase nem nomes UA).
 const GA4_FIELDS = [
@@ -57,6 +75,23 @@ export interface WindsorMetaRow {
   ctr?: number | string
   cpc?: number | string
   conversions?: number | string
+  actions_purchase?: number | string
+  action_values_purchase?: number | string
+}
+
+export interface WindsorMetaCampaignRow {
+  date: string
+  account_id?: string
+  campaign_id?: string
+  campaign_name?: string
+  adset_id?: string
+  adset_name?: string
+  spend?: number | string
+  impressions?: number | string
+  clicks?: number | string
+  reach?: number | string
+  ctr?: number | string
+  cpc?: number | string
   actions_purchase?: number | string
   action_values_purchase?: number | string
 }
@@ -134,6 +169,18 @@ export class WindsorClient {
     until: string
   ): Promise<WindsorMetaRow[]> {
     return this.query<WindsorMetaRow>('facebook', META_FIELDS, accountId, since, until)
+  }
+
+  /**
+   * Busca insights diários por campanha + conjunto de anúncios do Meta.
+   * Retorna uma linha por campanha/adset/dia.
+   */
+  async getMetaCampaignInsights(
+    accountId: string,
+    since: string,
+    until: string
+  ): Promise<WindsorMetaCampaignRow[]> {
+    return this.query<WindsorMetaCampaignRow>('facebook', META_CAMPAIGN_FIELDS, accountId, since, until)
   }
 
   /**

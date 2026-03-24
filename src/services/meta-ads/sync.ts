@@ -12,7 +12,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { WindsorClient } from '@/services/windsor/client'
-import { transformWindsorMeta } from '@/services/windsor/transformers'
+import { transformWindsorMeta, transformWindsorMetaCampaign } from '@/services/windsor/transformers'
 import { recalculateClientHealth } from '@/services/health-scorer'
 import { dispatchAlertsForClient } from '@/services/alert-dispatcher'
 
@@ -114,6 +114,58 @@ export async function syncMetaAccount(
         },
       })
       recordsUpserted++
+    }
+
+    // ── Campaign-level sync ────────────────────────────────────────────────
+    const campaignRows = await windsor.getMetaCampaignInsights(account.externalId, since, until)
+    for (const row of campaignRows) {
+      const snap = transformWindsorMetaCampaign(row)
+      const adSetId = snap.adSetId ?? '' // empty string = sem adset (único constraint não aceita NULL)
+      await prisma.campaignSnapshot.upsert({
+        where: {
+          platformAccountId_date_campaignId_adSetId: {
+            platformAccountId,
+            date: snap.date,
+            campaignId: snap.campaignId,
+            adSetId,
+          },
+        },
+        update: {
+          campaignName: snap.campaignName,
+          adSetName:    snap.adSetName,
+          spend:        snap.spend,
+          impressions:  snap.impressions,
+          clicks:       snap.clicks,
+          reach:        snap.reach,
+          ctr:          snap.ctr,
+          cpc:          snap.cpc,
+          conversions:  snap.conversions,
+          conversionValue: snap.conversionValue,
+          roas: snap.roas,
+          cpl:  snap.cpl,
+          syncedAt: new Date(),
+        },
+        create: {
+          clientId: account.clientId,
+          platformAccountId,
+          platform: 'META_ADS',
+          date:         snap.date,
+          campaignId:   snap.campaignId,
+          campaignName: snap.campaignName,
+          adSetId,
+          adSetName:    snap.adSetName,
+          spend:        snap.spend,
+          impressions:  snap.impressions,
+          clicks:       snap.clicks,
+          reach:        snap.reach,
+          ctr:          snap.ctr,
+          cpc:          snap.cpc,
+          conversions:  snap.conversions,
+          conversionValue: snap.conversionValue,
+          roas: snap.roas,
+          cpl:  snap.cpl,
+        },
+      })
     }
 
     await prisma.platformAccount.update({

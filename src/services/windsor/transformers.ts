@@ -2,7 +2,7 @@
  * Transforma linhas da Windsor API em objetos compatíveis com MetricSnapshot.
  */
 
-import { toNum, type WindsorMetaRow, type WindsorGA4Row } from './client'
+import { toNum, type WindsorMetaRow, type WindsorGA4Row, type WindsorMetaCampaignRow } from './client'
 
 export interface WindsorTransformedSnapshot {
   date: Date
@@ -57,6 +57,52 @@ export function transformWindsorMeta(row: WindsorMetaRow): WindsorTransformedSna
     roas,
     cpl,
     rawData: row,
+  }
+}
+
+// ── Meta Ads — nível de campanha / conjunto ───────────────────────────────────
+
+export interface WindsorCampaignSnapshot {
+  date: Date
+  campaignId: string
+  campaignName: string
+  adSetId: string | null
+  adSetName: string | null
+  spend: number
+  impressions: number
+  clicks: number
+  reach: number
+  ctr: number
+  cpc: number
+  conversions: number | null
+  conversionValue: number | null
+  roas: number | null
+  cpl: number | null
+}
+
+export function transformWindsorMetaCampaign(row: WindsorMetaCampaignRow): WindsorCampaignSnapshot {
+  const spend = toNum(row.spend)
+  const purchases = toNum(row.actions_purchase) || null
+  const revenue = toNum(row.action_values_purchase) || null
+  const roas = revenue && spend > 0 ? Math.round((revenue / spend) * 10000) / 10000 : null
+  const cpl  = purchases && spend > 0 ? Math.round((spend / purchases) * 100) / 100 : null
+
+  return {
+    date:         new Date(row.date + 'T00:00:00'),
+    campaignId:   row.campaign_id   ?? 'unknown',
+    campaignName: row.campaign_name ?? 'Campanha sem nome',
+    adSetId:      row.adset_id   ?? null,
+    adSetName:    row.adset_name ?? null,
+    spend,
+    impressions:     Math.round(toNum(row.impressions)),
+    clicks:          Math.round(toNum(row.clicks)),
+    reach:           Math.round(toNum(row.reach)),
+    ctr:             Math.round(toNum(row.ctr) * 100) / 100,
+    cpc:             Math.round(toNum(row.cpc) * 10000) / 10000,
+    conversions:     purchases ? Math.round(purchases) : null,
+    conversionValue: revenue,
+    roas,
+    cpl,
   }
 }
 
