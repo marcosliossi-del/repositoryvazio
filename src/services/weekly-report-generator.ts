@@ -100,44 +100,78 @@ export async function generateWeeklyReportForClient(clientId: string): Promise<s
   const pctChange = (curr: number, prev: number) =>
     prev > 0 ? ((curr - prev) / prev) * 100 : null
 
-  const prompt = `Você é o analista de performance de uma agência de tráfego pago especializada em e-commerce.
-Gere um relatório semanal profissional, objetivo e em texto corrido para ser enviado ao cliente via WhatsApp/e-mail toda segunda-feira de manhã.
+  const roasMetaStr = roasGoal
+    ? `${Number(roasGoal.targetValue).toFixed(2)}x`
+    : 'não definida'
+
+  const faturamentoMetaStr = faturamentoGoal
+    ? formatCurrency(Number(faturamentoGoal.targetValue))
+    : 'não definida'
+
+  const rwRevChange = pctChange(lw.revenue, pw.revenue)
+  const rwPurchasesChange = pctChange(lw.purchases, pw.purchases)
+  const rwSessionsChange = pctChange(lw.sessions, pw.sessions)
+
+  // Avalia se resultado está acima ou abaixo da meta de ROAS
+  const roasAboveMeta =
+    lw.roas !== null && roasGoal
+      ? lw.roas >= Number(roasGoal.targetValue)
+      : null
+
+  const periodoStr = `${lastWeekStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} a ${lastWeekEnd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`
+
+  const prompt = `Você é o assistente de tráfego pago e performance da Arkza, especializado em e-commerces.
+Gere um relatório semanal curto, direto e consultivo para ser enviado via WhatsApp ao cliente. Sem markdown, use apenas emojis como marcadores, frases curtas e linha em branco entre blocos.
 
 DADOS DO CLIENTE:
 - Nome: ${client.name}
-- Segmento: ${client.industry ?? 'E-commerce'}
-
-PERFORMANCE DA SEMANA PASSADA (${lastWeekStart.toLocaleDateString('pt-BR')} a ${lastWeekEnd.toLocaleDateString('pt-BR')}):
-- Faturamento (GA4): ${lw.revenue > 0 ? formatCurrency(lw.revenue) : 'sem dados'}${pw.revenue > 0 ? ` (${pctChange(lw.revenue, pw.revenue)?.toFixed(1)}% vs. semana anterior)` : ''}
-- Investimento em Anúncios: ${lw.spend > 0 ? formatCurrency(lw.spend) : 'sem dados'}
-- ROAS: ${lw.roas !== null ? `${lw.roas.toFixed(2)}x` : 'sem dados'}
-- Sessões (GA4): ${lw.sessions > 0 ? lw.sessions.toLocaleString('pt-BR') : 'sem dados'}
-- Compras: ${lw.purchases > 0 ? lw.purchases.toLocaleString('pt-BR') : 'sem dados'}
-- Taxa de Conversão: ${lw.taxaConversao !== null ? `${lw.taxaConversao.toFixed(2)}%` : 'sem dados'}
-- Ticket Médio: ${lw.ticketMedio !== null ? formatCurrency(lw.ticketMedio) : 'sem dados'}
-- CPA: ${lw.cpa !== null ? formatCurrency(lw.cpa) : 'sem dados'}
-
-ACUMULADO DO MÊS:
-- Faturamento acumulado: ${month.revenue > 0 ? formatCurrency(month.revenue) : 'sem dados'} (${daysElapsed} de ${daysInMonth} dias)
+- Período: ${periodoStr}
+- ROAS meta: ${roasMetaStr}
+- Meta de faturamento mensal: ${faturamentoMetaStr}
+- Investimento em mídia na semana: ${lw.spend > 0 ? formatCurrency(lw.spend) : 'sem dados'}
+- Faturamento (GA4) semana: ${lw.revenue > 0 ? formatCurrency(lw.revenue) : 'sem dados'}${rwRevChange !== null ? ` (${rwRevChange > 0 ? '+' : ''}${rwRevChange.toFixed(1)}% vs semana anterior)` : ''}
+- Compras semana: ${lw.purchases > 0 ? lw.purchases.toLocaleString('pt-BR') : 'sem dados'}${rwPurchasesChange !== null ? ` (${rwPurchasesChange > 0 ? '+' : ''}${rwPurchasesChange.toFixed(1)}% vs semana anterior)` : ''}
+- Sessões (GA4) semana: ${lw.sessions > 0 ? lw.sessions.toLocaleString('pt-BR') : 'sem dados'}${rwSessionsChange !== null ? ` (${rwSessionsChange > 0 ? '+' : ''}${rwSessionsChange.toFixed(1)}% vs semana anterior)` : ''}
+- ROAS realizado semana: ${lw.roas !== null ? `${lw.roas.toFixed(2)}x` : 'sem dados'}
+- Taxa de conversão semana: ${lw.taxaConversao !== null ? `${lw.taxaConversao.toFixed(2)}%` : 'sem dados'}
+- Ticket médio semana: ${lw.ticketMedio !== null ? formatCurrency(lw.ticketMedio) : 'sem dados'}
+- Faturamento acumulado no mês: ${month.revenue > 0 ? formatCurrency(month.revenue) : 'sem dados'} (${daysElapsed} de ${daysInMonth} dias)
 - Projeção para fechar o mês: ${projecaoMes !== null ? formatCurrency(projecaoMes) : 'insuficiente'}
-- Investimento acumulado: ${month.spend > 0 ? formatCurrency(month.spend) : 'sem dados'}
+- Resultado vs meta ROAS: ${roasAboveMeta === true ? 'ACIMA DA META' : roasAboveMeta === false ? 'ABAIXO DA META' : 'meta não definida'}
+- Contexto sazonal: não informado (ignore se não houver)
 
-${faturamentoGoal ? `META MENSAL DE FATURAMENTO: ${formatCurrency(Number(faturamentoGoal.targetValue))} (${month.revenue > 0 ? Math.round((month.revenue / Number(faturamentoGoal.targetValue)) * 100) : 0}% atingido até agora)` : ''}
-${roasGoal ? `META DE ROAS: ${Number(roasGoal.targetValue).toFixed(2)}x` : ''}
-${spendGoal ? `BUDGET MENSAL: ${formatCurrency(Number(spendGoal.targetValue))} (${month.spend > 0 ? Math.round((month.spend / Number(spendGoal.targetValue)) * 100) : 0}% consumido)` : ''}
+ESTRUTURA OBRIGATÓRIA DO RELATÓRIO (siga exatamente):
 
-FORMATO DO RELATÓRIO:
-- Comece com uma saudação curta e o nome do cliente
-- Destaque os pontos mais relevantes da semana (o que foi bom, o que precisa de atenção)
-- Comente sobre o ritmo em relação à meta mensal (se existir)
-- Inclua 2–3 insights práticos ou próximos passos
-- Tom: profissional mas próximo, objetivo, sem jargões excessivos
-- Tamanho: ideal para WhatsApp (não muito longo), máximo 350 palavras
-- Use quebras de linha para facilitar leitura no WhatsApp
-- NÃO use markdown (sem asteriscos, sem #, sem listas com traço)
-- Use emojis com moderação para destaque visual
+📊 RELATÓRIO SEMANAL — ${client.name.toUpperCase()} 📅 ${periodoStr}
 
-Gere apenas o texto do relatório, pronto para copiar e enviar.`
+[1 frase de abertura com tom calibrado:
+→ Se ROAS acima da meta ou faturamento cresceu: tom celebratório
+→ Se resultado abaixo da meta ou queda: tom estratégico e tranquilizador
+→ Nunca mencione "abaixo da meta" de forma alarmista]
+
+📈 Resultados da semana
+[Máximo 5 linhas. Traga: faturamento com variação, compras com variação, sessões com variação e ROAS realizado vs meta. Seja direto — número, emoji e 1 adjetivo/contexto curto por linha. Sem explicações longas.]
+
+👗 O que mais vendeu
+[Máximo 4 linhas. Se não houver dados de produto, comente sobre a distribuição de vendas no período de forma genérica e consultiva. Baseie-se nos dados disponíveis.]
+
+🚀 Próximos passos
+[3 ações curtas, em primeira pessoa do plural. 1 linha cada.]
+Vamos [ação #1]
+Reforçaremos [ação #2]
+Ativaremos [ação #3]
+
+${lw.taxaConversao !== null && lw.taxaConversao < 1 ? `⚠️ INCLUA este bloco pois a taxa de conversão está abaixo de 1%:
+
+🔍 Atenção na jornada
+[Máximo 4 linhas. Identifique a trava (taxa de conversão baixa), 1 possível motivo e 1 sugestão prática. Tom consultivo e parceiro, nunca alarmista.]` : `NÃO inclua o bloco "Atenção na jornada" pois a taxa de conversão está adequada (≥1%).`}
+
+REGRAS:
+- Sem markdown (sem *, #, -, **)
+- Use apenas emojis como marcadores visuais
+- Frases curtas, linguagem próxima e profissional
+- Linha em branco entre cada bloco
+- Gere apenas o texto do relatório, pronto para copiar e enviar no WhatsApp`
 
   try {
     const response = await anthropic.messages.create({
