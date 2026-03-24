@@ -108,18 +108,176 @@ export const getDashboardData = cache(async (userId: string, role: string) => {
   const regular = summaries.filter((c) => c.overallStatus === 'REGULAR').length
   const ruim = summaries.filter((c) => c.overallStatus === 'RUIM').length
 
-  // Recent alerts
+  // Recent alerts (non-oscillation)
   const alerts = await prisma.alert.findMany({
     where:
       role === 'ADMIN'
-        ? { read: false }
-        : { read: false, client: { assignments: { some: { userId } } } },
+        ? { read: false, type: { notIn: ['KPI_DROP_24H', 'KPI_SPIKE_24H'] } }
+        : { read: false, type: { notIn: ['KPI_DROP_24H', 'KPI_SPIKE_24H'] }, client: { assignments: { some: { userId } } } },
     include: { client: { select: { name: true } } },
     orderBy: { createdAt: 'desc' },
     take: 5,
   })
 
-  return { clients: summaries, totals: { total: summaries.length, otimo, regular, ruim }, alerts }
+  // Today's oscillation alerts (KPI_DROP_24H / KPI_SPIKE_24H)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const oscillationAlerts = await prisma.alert.findMany({
+    where:
+      role === 'ADMIN'
+        ? { type: { in: ['KPI_DROP_24H', 'KPI_SPIKE_24H'] }, createdAt: { gte: todayStart } }
+        : {
+            type: { in: ['KPI_DROP_24H', 'KPI_SPIKE_24H'] },
+            createdAt: { gte: todayStart },
+            client: { assignments: { some: { userId } } },
+          },
+    include: { client: { select: { name: true, slug: true } } },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+  })
+
+  // Last sync timestamp (most recent lastSyncAt across all platform accounts)
+  const lastSyncAccount = await prisma.platformAccount.findFirst({
+    where:
+      role === 'ADMIN'
+        ? { active: true, lastSyncAt: { not: null } }
+        : { active: true, lastSyncAt: { not: null }, client: { assignments: { some: { userId } } } },
+    orderBy: { lastSyncAt: 'desc' },
+    select: { lastSyncAt: true },
+  })
+
+  return {
+    clients: summaries,
+    totals: { total: summaries.length, otimo, regular, ruim },
+    alerts,
+    oscillationAlerts,
+    lastSyncAt: lastSyncAccount?.lastSyncAt ?? null,
+  }
+})
+
+// ─── Operational dashboard table ──────────────────────────────────────────────
+
+export type ClientOperationalRow = {
+  id: string
+  name: string
+  slug: string
+  primaryManager: string | null
+  // e-commerce KPIs (current month, null = no data yet)
+  vendas: number | null         // conversions (purchases)
+  cpa: number | null            // cost per acquisition
+  roas: number | null           // return on ad spend
+  gasto: number | null          // total ad spend
+  cps: number | null            // cost per session
+  taxaConversao: number | null  // conversion rate %
+  // health
+  overallStatus: HealthStatus | null
+  // budget
+  budgetConsumed: number | null  // actual spend this week
+  budgetPlanned: number | null   // target spend from Goal (SPEND/WEEKLY)
+}
+
+export const getClientsOperationalTable = cache(async (
+  userId: string,
+  role: string,
+): Promise<ClientOperationalRow[]> => {
+  const today = new Date()
+  const { start: monthStart } = getMonthRange(today)
+
+  const where: Prisma.ClientWhereInput =
+    role === 'ADMIN'
+      ? { status: 'ACTIVE' }
+      : { status: 'ACTIVE', assignments: { some: { userId } } }
+
+  const { start: weekStart, end: weekEnd } = getWeekRange()
+
+  const clients = await prisma.client.findMany({
+    where,
+    include: {
+      assignments: {
+        where: { isPrimary: true },
+        include: { user: { select: { name: true } } },
+        take: 1,
+      },
+      metricSnapshots: {
+        where: { date: { gte: monthStart, lte: today } },
+        select: {
+          spend: true,
+          clicks: true,
+          conversions: true,
+          conversionValue: true,
+          date: true,
+        },
+      },
+      healthScores: {
+        where: { periodStart: { gte: weekStart } },
+        select: { status: true },
+      },
+      goals: {
+        where: {
+          metric: 'SPEND',
+          period: 'WEEKLY',
+          startDate: { lte: weekEnd },
+          endDate: { gte: weekStart },
+        },
+        select: { targetValue: true },
+        take: 1,
+      },
+    },
+    orderBy: { name: 'asc' },
+  })
+
+  return clients.map((c): ClientOperationalRow => {
+    const snaps = c.metricSnapshots
+
+    const ga4  = snaps.filter((x) => Number(x.spend ?? 0) === 0)
+    const ads  = snaps.filter((x) => Number(x.spend ?? 0) > 0)
+
+    const spend     = ads.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+    const sessions  = ga4.reduce((s, x) => s + (x.clicks ?? 0), 0)
+    const purchases = snaps.reduce((s, x) => s + (x.conversions ?? 0), 0)
+    const ga4Rev    = ga4.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+    const adRev     = ads.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+    const revenue   = ga4Rev > 0 ? ga4Rev : adRev
+
+    const roas          = spend > 0 && revenue > 0 ? revenue / spend : null
+    const cpa           = spend > 0 && purchases > 0 ? spend / purchases : null
+    const cps           = spend > 0 && sessions > 0 ? spend / sessions : null
+    const taxaConversao = sessions > 0 && purchases > 0 ? (purchases / sessions) * 100 : null
+
+    const scores = c.healthScores
+    const overallStatus: HealthStatus | null =
+      scores.length === 0
+        ? null
+        : scores.some((s) => s.status === 'RUIM')
+        ? 'RUIM'
+        : scores.some((s) => s.status === 'REGULAR')
+        ? 'REGULAR'
+        : 'OTIMO'
+
+    // Budget: consumed = this week's spend, planned = SPEND/WEEKLY goal
+    const weekSnaps = ads.filter((x) => {
+      const d = new Date(x.date)
+      return d >= weekStart && d <= weekEnd
+    })
+    const budgetConsumed = weekSnaps.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+    const budgetPlanned = c.goals[0] ? Number(c.goals[0].targetValue) : null
+
+    return {
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      primaryManager: c.assignments[0]?.user.name ?? null,
+      vendas: purchases > 0 ? purchases : null,
+      cpa,
+      roas,
+      gasto: spend > 0 ? spend : null,
+      cps,
+      taxaConversao,
+      overallStatus,
+      budgetConsumed: budgetConsumed > 0 ? budgetConsumed : null,
+      budgetPlanned,
+    }
+  })
 })
 
 // ─── Clients list ─────────────────────────────────────────────────────────────
@@ -832,6 +990,187 @@ export const getAtRiskClients = cache(async (userId: string, role: string): Prom
     }
     return b.consecutiveRuimWeeks - a.consecutiveRuimWeeks
   })
+
+  return result
+})
+
+// ─── Manager stats (for manager cards) ────────────────────────────────────────
+
+export type ManagerStat = {
+  userId: string
+  name: string
+  role: string
+  avatarUrl: string | null
+  totalClients: number
+  totalSpend: number
+  avgRoas: number | null
+  totalSales: number
+  avgCpa: number | null
+  clientsHealthy: number
+  clientsWarning: number
+  clientsCritical: number
+  vsLastWeek: number | null  // % change in totalSales vs previous 7 days
+}
+
+export const getManagerStats = cache(async (): Promise<ManagerStat[]> => {
+  const { start: weekStart, end: weekEnd } = getWeekRange()
+  const prevWeekStart = new Date(weekStart)
+  prevWeekStart.setDate(prevWeekStart.getDate() - 7)
+  const prevWeekEnd = new Date(weekStart)
+  prevWeekEnd.setDate(prevWeekEnd.getDate() - 1)
+
+  // Get all active clients with their primary manager and relevant data
+  const clients = await prisma.client.findMany({
+    where: { status: 'ACTIVE' },
+    include: {
+      assignments: {
+        where: { isPrimary: true },
+        include: {
+          user: {
+            select: { id: true, name: true, role: true, avatarUrl: true },
+          },
+        },
+        take: 1,
+      },
+      metricSnapshots: {
+        where: { date: { gte: weekStart, lte: weekEnd } },
+        select: { spend: true, conversions: true, conversionValue: true, roas: true, cpa: true },
+      },
+      // For previous week comparison
+      healthScores: {
+        where: { periodStart: { gte: weekStart } },
+        select: { status: true },
+      },
+    },
+  })
+
+  // Also get previous week snapshots
+  const clientIds = clients.map((c) => c.id)
+  const prevSnapshots = clientIds.length > 0
+    ? await prisma.metricSnapshot.findMany({
+        where: {
+          clientId: { in: clientIds },
+          date: { gte: prevWeekStart, lte: prevWeekEnd },
+          spend: { gt: 0 },
+        },
+        select: { clientId: true, conversions: true },
+      })
+    : []
+
+  type SnapItem = (typeof clients)[number]['metricSnapshots'][number]
+  type HealthItem = { status: HealthStatus }
+
+  // Group by manager
+  const managerMap = new Map<string, {
+    user: { id: string; name: string; role: string; avatarUrl: string | null }
+    clientData: Array<{
+      snaps: SnapItem[]
+      healthScores: HealthItem[]
+      prevSales: number
+    }>
+  }>()
+
+  for (const client of clients) {
+    const assignment = client.assignments[0]
+    if (!assignment) continue
+    const { user } = assignment
+
+    if (!managerMap.has(user.id)) {
+      managerMap.set(user.id, { user, clientData: [] })
+    }
+
+    const prevSales = prevSnapshots
+      .filter((s) => s.clientId === client.id)
+      .reduce((sum, s) => sum + (s.conversions ?? 0), 0)
+
+    managerMap.get(user.id)!.clientData.push({
+      snaps: client.metricSnapshots,
+      healthScores: client.healthScores,
+      prevSales,
+    })
+  }
+
+  const result: ManagerStat[] = []
+
+  for (const [, { user, clientData }] of managerMap) {
+    const totalClients = clientData.length
+
+    let totalSpend = 0
+    let totalSales = 0
+    let totalPrevSales = 0
+    const roasValues: number[] = []
+    const cpaValues: number[] = []
+    let clientsHealthy = 0
+    let clientsWarning = 0
+    let clientsCritical = 0
+
+    for (const { snaps, healthScores, prevSales } of clientData) {
+      const adsSnaps = snaps.filter((x) => Number(x.spend ?? 0) > 0)
+      const clientSpend = adsSnaps.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+      const clientSales = snaps.reduce((s, x) => s + (x.conversions ?? 0), 0)
+
+      totalSpend += clientSpend
+      totalSales += clientSales
+      totalPrevSales += prevSales
+
+      if (clientSpend > 0) {
+        const roasArr = adsSnaps.map((x) => Number(x.roas ?? 0)).filter((v) => v > 0)
+        if (roasArr.length > 0) {
+          roasValues.push(roasArr.reduce((a, b) => a + b, 0) / roasArr.length)
+        }
+        const cpaArr = adsSnaps.map((x) => Number(x.cpa ?? 0)).filter((v) => v > 0)
+        if (cpaArr.length > 0) {
+          cpaValues.push(cpaArr.reduce((a, b) => a + b, 0) / cpaArr.length)
+        }
+      }
+
+      const overallStatus: HealthStatus | null =
+        healthScores.length === 0
+          ? null
+          : healthScores.some((s) => s.status === 'RUIM')
+          ? 'RUIM'
+          : healthScores.some((s) => s.status === 'REGULAR')
+          ? 'REGULAR'
+          : 'OTIMO'
+
+      if (overallStatus === 'OTIMO') clientsHealthy++
+      else if (overallStatus === 'REGULAR') clientsWarning++
+      else if (overallStatus === 'RUIM') clientsCritical++
+    }
+
+    const avgRoas = roasValues.length > 0
+      ? roasValues.reduce((a, b) => a + b, 0) / roasValues.length
+      : null
+    const avgCpa = cpaValues.length > 0
+      ? cpaValues.reduce((a, b) => a + b, 0) / cpaValues.length
+      : null
+
+    const vsLastWeek =
+      totalPrevSales > 0
+        ? ((totalSales - totalPrevSales) / totalPrevSales) * 100
+        : totalSales > 0
+        ? 100
+        : null
+
+    result.push({
+      userId: user.id,
+      name: user.name,
+      role: user.role,
+      avatarUrl: user.avatarUrl,
+      totalClients,
+      totalSpend,
+      avgRoas,
+      totalSales,
+      avgCpa,
+      clientsHealthy,
+      clientsWarning,
+      clientsCritical,
+      vsLastWeek,
+    })
+  }
+
+  // Sort by totalClients desc
+  result.sort((a, b) => b.totalClients - a.totalClients)
 
   return result
 })
