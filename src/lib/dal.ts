@@ -4,7 +4,7 @@ import { prisma } from './prisma'
 import { getSession } from './session'
 import { redirect } from 'next/navigation'
 import { HealthStatus, Prisma } from '@prisma/client'
-import { getWeekRange } from './utils'
+import { getWeekRange, getMonthRange } from './utils'
 
 // ─── Auth guard ───────────────────────────────────────────────────────────────
 
@@ -195,6 +195,7 @@ export const getClientsList = cache(async (userId: string, role: string) => {
 
 export const getClientDetail = cache(async (slug: string) => {
   const { start: weekStart, end: weekEnd } = getWeekRange()
+  const { start: monthStart, end: monthEnd } = getMonthRange()
 
   const client = await prisma.client.findUnique({
     where: { slug },
@@ -204,14 +205,25 @@ export const getClientDetail = cache(async (slug: string) => {
       },
       platformAccounts: { where: { active: true } },
       goals: {
-        where: { period: 'WEEKLY', startDate: { lte: weekEnd }, endDate: { gte: weekStart } },
+        where: {
+          OR: [
+            { period: 'WEEKLY',  startDate: { lte: weekEnd },  endDate: { gte: weekStart } },
+            { period: 'MONTHLY', startDate: { lte: monthEnd }, endDate: { gte: monthStart } },
+          ],
+        },
         include: {
           healthScores: {
-            where: { periodStart: { gte: weekStart } },
+            where: {
+              OR: [
+                { periodStart: { gte: weekStart } },
+                { periodStart: { gte: monthStart } },
+              ],
+            },
             orderBy: { calculatedAt: 'desc' },
             take: 1,
           },
         },
+        orderBy: [{ period: 'asc' }, { createdAt: 'asc' }],
       },
       alerts: {
         where: { read: false },
@@ -229,6 +241,111 @@ export const getClientDetail = cache(async (slug: string) => {
   return client
 })
 
+// ─── Client KPIs (current month computed) ─────────────────────────────────────
+
+export type ClientKPIs = {
+  periodLabel: string
+  daysElapsed: number
+  daysInMonth: number
+  // Financeiro
+  faturamento: number
+  faturamentoTrend: number | null
+  investimento: number
+  investimentoTrend: number | null
+  roas: number | null
+  roasTrend: number | null
+  projecaoMes: number | null
+  // Conversão
+  compras: number
+  comprasTrend: number | null
+  taxaConversao: number | null
+  taxaConversaoTrend: number | null
+  ticketMedio: number | null
+  ticketMedioTrend: number | null
+  // Tráfego
+  sessoes: number
+  sessoesTrend: number | null
+  cps: number | null
+  cpsTrend: number | null
+  cpm: number | null
+  cpmTrend: number | null
+  cpa: number | null
+  cpaTrend: number | null
+}
+
+export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs> => {
+  const today = new Date()
+  const { start: monthStart } = getMonthRange(today)
+  const daysElapsed = today.getDate()
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+
+  // Same period last month
+  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+  const lastMonthSameDay = new Date(today.getFullYear(), today.getMonth() - 1, daysElapsed)
+  lastMonthSameDay.setHours(23, 59, 59, 999)
+
+  const [currSnaps, prevSnaps] = await Promise.all([
+    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: monthStart, lte: today } } }),
+    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: lastMonthStart, lte: lastMonthSameDay } } }),
+  ])
+
+  function compute(snaps: typeof currSnaps) {
+    const spend = snaps.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+    const revenue = snaps.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+    const conversions = snaps.reduce((s, x) => s + (x.conversions ?? 0), 0)
+    const sessions = snaps.reduce((s, x) => s + (x.clicks ?? 0), 0)
+    const impressions = snaps.reduce((s, x) => s + (x.impressions ?? 0), 0)
+    return {
+      spend, revenue, conversions, sessions, impressions,
+      roas:          spend > 0 ? revenue / spend : null,
+      ticketMedio:   conversions > 0 ? revenue / conversions : null,
+      taxaConversao: sessions > 0 ? (conversions / sessions) * 100 : null,
+      cps:           sessions > 0 ? spend / sessions : null,
+      cpm:           impressions > 0 ? (spend / impressions) * 1000 : null,
+      cpa:           conversions > 0 ? spend / conversions : null,
+    }
+  }
+
+  const curr = compute(currSnaps)
+  const prev = compute(prevSnaps)
+
+  const pctChange = (c: number | null, p: number | null): number | null =>
+    c !== null && p !== null && p !== 0 ? ((c - p) / Math.abs(p)) * 100 : null
+
+  const projecaoMes = daysElapsed > 0 && curr.revenue > 0
+    ? (curr.revenue / daysElapsed) * daysInMonth
+    : null
+
+  const periodLabel = today.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+
+  return {
+    periodLabel,
+    daysElapsed,
+    daysInMonth,
+    faturamento: curr.revenue,
+    faturamentoTrend: pctChange(curr.revenue, prev.revenue),
+    investimento: curr.spend,
+    investimentoTrend: pctChange(curr.spend, prev.spend),
+    roas: curr.roas,
+    roasTrend: pctChange(curr.roas, prev.roas),
+    projecaoMes,
+    compras: curr.conversions,
+    comprasTrend: pctChange(curr.conversions, prev.conversions),
+    taxaConversao: curr.taxaConversao,
+    taxaConversaoTrend: pctChange(curr.taxaConversao, prev.taxaConversao),
+    ticketMedio: curr.ticketMedio,
+    ticketMedioTrend: pctChange(curr.ticketMedio, prev.ticketMedio),
+    sessoes: curr.sessions,
+    sessoesTrend: pctChange(curr.sessions, prev.sessions),
+    cps: curr.cps,
+    cpsTrend: pctChange(curr.cps, prev.cps),
+    cpm: curr.cpm,
+    cpmTrend: pctChange(curr.cpm, prev.cpm),
+    cpa: curr.cpa,
+    cpaTrend: pctChange(curr.cpa, prev.cpa),
+  }
+})
+
 // ─── Metric labels ────────────────────────────────────────────────────────────
 
 export const metricLabels: Record<string, string> = {
@@ -244,7 +361,12 @@ export const metricLabels: Record<string, string> = {
   REACH: 'Alcance',
   FREQUENCY: 'Frequência',
   CLICKS: 'Cliques',
-  SPEND: 'Gasto',
+  SPEND: 'Investimento (Budget)',
+  FATURAMENTO: 'Faturamento',
+  TICKET_MEDIO: 'Ticket Médio',
+  TAXA_CONVERSAO: 'Taxa de Conversão',
+  CPS: 'Custo por Sessão',
+  CPM: 'CPM',
 }
 
 // ─── Metric history (charts) ──────────────────────────────────────────────────

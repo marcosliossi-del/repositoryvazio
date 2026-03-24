@@ -1,24 +1,22 @@
 /**
  * Health Scorer
  *
- * Recalcula os HealthScores de um cliente para a semana atual
- * a partir dos MetricSnapshots existentes no banco.
+ * Recalcula os HealthScores de um cliente para a semana atual (metas semanais)
+ * e para o mês atual (metas mensais).
  *
  * Regras:
  *   ≥ 90% da meta  → OTIMO
  *   70–89%          → REGULAR
  *   < 70%           → RUIM
  *
- * Para métricas "lower is better" (CPL, CPA, CPC):
+ * Para métricas "lower is better" (CPL, CPA, CPC, CPS, CPM):
  *   achievement% = (target / actual) * 100
- *   ex: meta CPL = 25, actual = 20 → 125% → OTIMO
- *       meta CPL = 25, actual = 35 → 71%  → REGULAR
  */
 
 import { prisma } from '@/lib/prisma'
 import { classifyHealth } from '@/lib/health'
 import { MetricType, HealthStatus } from '@prisma/client'
-import { getWeekRange } from '@/lib/utils'
+import { getWeekRange, getMonthRange } from '@/lib/utils'
 
 /** Métricas onde menor valor = melhor resultado */
 const LOWER_IS_BETTER: Set<MetricType> = new Set([
@@ -26,63 +24,93 @@ const LOWER_IS_BETTER: Set<MetricType> = new Set([
   'CPA',
   'CPC',
   'SPEND',
+  'CPS',
+  'CPM',
 ])
 
-/** Agrega MetricSnapshots da semana em um único valor por métrica */
-function aggregateSnapshots(
-  snapshots: {
-    spend: unknown
-    roas: unknown
-    cpl: unknown
-    cpa: unknown
-    ctr: unknown
-    cpc: unknown
-    conversions: unknown
-    conversionValue: unknown
-    impressions: unknown
-    reach: unknown
-    clicks: unknown
-    frequency: unknown
-  }[],
-  metric: MetricType
-): number | null {
-  const toNum = (v: unknown) => (v != null ? Number(v) : null)
+type Snapshot = {
+  spend: unknown
+  roas: unknown
+  cpl: unknown
+  cpa: unknown
+  ctr: unknown
+  cpc: unknown
+  conversions: unknown
+  conversionValue: unknown
+  impressions: unknown
+  reach: unknown
+  clicks: unknown
+  frequency: unknown
+}
 
+/** Agrega MetricSnapshots em um único valor por métrica */
+function aggregateSnapshots(snapshots: Snapshot[], metric: MetricType): number | null {
+  if (snapshots.length === 0) return null
+  const toNum = (v: unknown) => (v != null ? Number(v) : 0)
+
+  // ── Métricas derivadas (requerem numerador + denominador separados) ─────────
+  if (metric === 'TAXA_CONVERSAO') {
+    const totalConv = snapshots.reduce((s, x) => s + toNum(x.conversions), 0)
+    const totalSessions = snapshots.reduce((s, x) => s + toNum(x.clicks), 0)
+    return totalSessions > 0 ? (totalConv / totalSessions) * 100 : null
+  }
+
+  if (metric === 'TICKET_MEDIO') {
+    const totalRev = snapshots.reduce((s, x) => s + toNum(x.conversionValue), 0)
+    const totalConv = snapshots.reduce((s, x) => s + toNum(x.conversions), 0)
+    return totalConv > 0 ? totalRev / totalConv : null
+  }
+
+  if (metric === 'CPS') {
+    const totalSpend = snapshots.reduce((s, x) => s + toNum(x.spend), 0)
+    const totalSessions = snapshots.reduce((s, x) => s + toNum(x.clicks), 0)
+    return totalSessions > 0 ? totalSpend / totalSessions : null
+  }
+
+  if (metric === 'CPM') {
+    const totalSpend = snapshots.reduce((s, x) => s + toNum(x.spend), 0)
+    const totalImpressions = snapshots.reduce((s, x) => s + toNum(x.impressions), 0)
+    return totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : null
+  }
+
+  if (metric === 'FATURAMENTO') {
+    const total = snapshots.reduce((s, x) => s + toNum(x.conversionValue), 0)
+    return total > 0 ? total : null
+  }
+
+  // ── Métricas diretas ──────────────────────────────────────────────────────
   const values = snapshots.map((s) => {
     switch (metric) {
-      case 'ROAS':         return toNum(s.roas)
-      case 'CPL':          return toNum(s.cpl)
-      case 'CPA':          return toNum(s.cpa)
+      case 'ROAS':         return toNum(s.roas) || null
+      case 'CPL':          return toNum(s.cpl) || null
+      case 'CPA':          return toNum(s.cpa) || null
       case 'INVESTMENT':
-      case 'SPEND':        return toNum(s.spend)
-      case 'CONVERSIONS':  return toNum(s.conversions)
-      case 'SALES':        return toNum(s.conversionValue)
-      case 'CTR':          return toNum(s.ctr)
-      case 'CPC':          return toNum(s.cpc)
-      case 'IMPRESSIONS':  return toNum(s.impressions)
-      case 'REACH':        return toNum(s.reach)
-      case 'CLICKS':       return toNum(s.clicks)
-      case 'FREQUENCY':    return toNum(s.frequency)
+      case 'SPEND':        return toNum(s.spend) || null
+      case 'CONVERSIONS':  return toNum(s.conversions) || null
+      case 'SALES':        return toNum(s.conversionValue) || null
+      case 'CTR':          return toNum(s.ctr) || null
+      case 'CPC':          return toNum(s.cpc) || null
+      case 'IMPRESSIONS':  return toNum(s.impressions) || null
+      case 'REACH':        return toNum(s.reach) || null
+      case 'CLICKS':       return toNum(s.clicks) || null
+      case 'FREQUENCY':    return toNum(s.frequency) || null
       default:             return null
     }
   }).filter((v): v is number => v !== null)
 
   if (values.length === 0) return null
 
-  // Sum-based metrics (totals)
   const SUM_METRICS: MetricType[] = ['INVESTMENT', 'SPEND', 'CONVERSIONS', 'SALES', 'IMPRESSIONS', 'REACH', 'CLICKS']
   if (SUM_METRICS.includes(metric)) {
     return values.reduce((a, b) => a + b, 0)
   }
 
-  // Average-based metrics (rates)
   return values.reduce((a, b) => a + b, 0) / values.length
 }
 
 function computeAchievementPct(actual: number, target: number, lowerIsBetter: boolean): number {
   if (target === 0) return 0
   if (lowerIsBetter) {
-    // lower actual = better: achievement = target / actual * 100
     return (target / actual) * 100
   }
   return (actual / target) * 100
@@ -90,43 +118,22 @@ function computeAchievementPct(actual: number, target: number, lowerIsBetter: bo
 
 export type ScoredMetric = { metric: MetricType; status: HealthStatus; achievementPct: number }
 
-export async function recalculateClientHealth(clientId: string): Promise<{
-  created: number
-  updated: number
-  scores: ScoredMetric[]
-}> {
-  const { start: weekStart, end: weekEnd } = getWeekRange()
-
-  // Load active weekly goals for this client in the current week
-  const goals = await prisma.goal.findMany({
-    where: {
-      clientId,
-      period: 'WEEKLY',
-      startDate: { lte: weekEnd },
-      endDate:   { gte: weekStart },
-    },
-  })
-
-  if (goals.length === 0) return { created: 0, updated: 0, scores: [] }
-
-  // Load all MetricSnapshots for this client in the current week
-  const snapshots = await prisma.metricSnapshot.findMany({
-    where: {
-      clientId,
-      date: { gte: weekStart, lte: weekEnd },
-    },
-  })
-
+async function processGoals(
+  clientId: string,
+  goals: { id: string; metric: MetricType; period: 'WEEKLY' | 'MONTHLY'; targetValue: { toNumber: () => number } | number }[],
+  snapshots: Snapshot[],
+  periodStart: Date,
+  periodEnd: Date
+): Promise<{ created: number; updated: number; scores: ScoredMetric[] }> {
   let created = 0
   let updated = 0
   const scores: ScoredMetric[] = []
 
   for (const goal of goals) {
-    const actual = aggregateSnapshots(snapshots as Parameters<typeof aggregateSnapshots>[0], goal.metric)
+    const actual = aggregateSnapshots(snapshots, goal.metric)
+    if (actual === null) continue
 
-    if (actual === null) continue // no data yet
-
-    const target = Number(goal.targetValue)
+    const target = typeof goal.targetValue === 'number' ? goal.targetValue : goal.targetValue.toNumber()
     const lowerIsBetter = LOWER_IS_BETTER.has(goal.metric)
     const pct = computeAchievementPct(actual, target, lowerIsBetter)
     const status = classifyHealth(lowerIsBetter ? target : actual, lowerIsBetter ? actual : target)
@@ -136,8 +143,8 @@ export async function recalculateClientHealth(clientId: string): Promise<{
       goalId:        goal.id,
       metric:        goal.metric,
       period:        goal.period,
-      periodStart:   weekStart,
-      periodEnd:     weekEnd,
+      periodStart,
+      periodEnd,
       targetValue:   target,
       actualValue:   actual,
       achievementPct: pct,
@@ -146,7 +153,7 @@ export async function recalculateClientHealth(clientId: string): Promise<{
     }
 
     const existing = await prisma.healthScore.findUnique({
-      where: { clientId_goalId_periodStart: { clientId, goalId: goal.id, periodStart: weekStart } },
+      where: { clientId_goalId_periodStart: { clientId, goalId: goal.id, periodStart } },
     })
 
     if (existing) {
@@ -164,6 +171,54 @@ export async function recalculateClientHealth(clientId: string): Promise<{
   }
 
   return { created, updated, scores }
+}
+
+export async function recalculateClientHealth(clientId: string): Promise<{
+  created: number
+  updated: number
+  scores: ScoredMetric[]
+}> {
+  const { start: weekStart, end: weekEnd } = getWeekRange()
+  const { start: monthStart, end: monthEnd } = getMonthRange()
+  const today = new Date()
+
+  // ── Weekly goals ──────────────────────────────────────────────────────────
+  const weeklyGoals = await prisma.goal.findMany({
+    where: {
+      clientId,
+      period: 'WEEKLY',
+      startDate: { lte: weekEnd },
+      endDate:   { gte: weekStart },
+    },
+  })
+
+  const weeklySnapshots = await prisma.metricSnapshot.findMany({
+    where: { clientId, date: { gte: weekStart, lte: weekEnd } },
+  })
+
+  const weeklyResult = await processGoals(clientId, weeklyGoals, weeklySnapshots, weekStart, weekEnd)
+
+  // ── Monthly goals ─────────────────────────────────────────────────────────
+  const monthlyGoals = await prisma.goal.findMany({
+    where: {
+      clientId,
+      period: 'MONTHLY',
+      startDate: { lte: monthEnd },
+      endDate:   { gte: monthStart },
+    },
+  })
+
+  const monthlySnapshots = await prisma.metricSnapshot.findMany({
+    where: { clientId, date: { gte: monthStart, lte: today } },
+  })
+
+  const monthlyResult = await processGoals(clientId, monthlyGoals, monthlySnapshots, monthStart, monthEnd)
+
+  return {
+    created: weeklyResult.created + monthlyResult.created,
+    updated: weeklyResult.updated + monthlyResult.updated,
+    scores: [...weeklyResult.scores, ...monthlyResult.scores],
+  }
 }
 
 export async function recalculateAllClientsHealth(): Promise<{

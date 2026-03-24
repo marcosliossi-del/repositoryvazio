@@ -19,6 +19,7 @@ export async function createGoal(prevState: GoalState, formData: FormData): Prom
   const startDate = formData.get('startDate') as string
   const endDate = formData.get('endDate') as string
   const notes = formData.get('notes') as string
+  const periodRaw = formData.get('period') as string
 
   if (!clientId || !metric || !targetValue || !startDate || !endDate) {
     return { error: 'Preencha todos os campos obrigatórios.' }
@@ -43,11 +44,12 @@ export async function createGoal(prevState: GoalState, formData: FormData): Prom
   if (!client) return { error: 'Cliente não encontrado.' }
 
   try {
+    const period = periodRaw === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY'
     await prisma.goal.create({
       data: {
         clientId,
         metric: metric as MetricType,
-        period: 'WEEKLY',
+        period,
         targetValue: target,
         startDate: start,
         endDate: end,

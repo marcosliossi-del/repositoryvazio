@@ -121,6 +121,12 @@ enum MetricType {
   FREQUENCY
   CLICKS
   SPEND
+  // ── Novas métricas e-commerce ─────────────────────────────────────────────
+  FATURAMENTO      // receita total de compras
+  TICKET_MEDIO     // receita / conversões
+  TAXA_CONVERSAO   // conversões / sessões × 100
+  CPS              // custo por sessão (spend / sessões)
+  CPM              // custo por mil impressões
 }
 
 model MetricSnapshot {

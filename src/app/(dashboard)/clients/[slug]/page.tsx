@@ -1,13 +1,16 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { requireSession, getClientDetail, getClientMetricHistory, metricLabels } from '@/lib/dal'
+import {
+  requireSession, getClientDetail, getClientMetricHistory,
+  getClientKPIs, metricLabels,
+} from '@/lib/dal'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardValue } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { healthLabels, healthBgClasses } from '@/lib/health'
 import { HealthStatus } from '@prisma/client'
-import { formatCurrency, timeAgo } from '@/lib/utils'
-import { ArrowLeft, Target, BookOpen, RefreshCw } from 'lucide-react'
+import { formatCurrency, formatNumber, timeAgo } from '@/lib/utils'
+import { ArrowLeft, Target, BookOpen, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { GoalFormModal } from '@/components/clients/GoalFormModal'
 import { SyncButton } from '@/components/clients/SyncButton'
 import { LinkAccountModal } from '@/components/clients/LinkAccountModal'
@@ -27,35 +30,81 @@ const platformNames: Record<string, string> = {
   GA4: 'GA4',
 }
 
+function TrendBadge({ value, lowerIsBetter = false }: { value: number | null; lowerIsBetter?: boolean }) {
+  if (value === null) return null
+  const isGood = lowerIsBetter ? value < 0 : value > 0
+  const neutral = Math.abs(value) < 1
+  if (neutral) return (
+    <span className="flex items-center gap-0.5 text-[10px] text-[#87919E]">
+      <Minus size={10} /> 0%
+    </span>
+  )
+  return (
+    <span className={`flex items-center gap-0.5 text-[10px] font-medium ${isGood ? 'text-[#22C55E]' : 'text-[#EF4444]'}`}>
+      {isGood ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+      {value > 0 ? '+' : ''}{Math.round(value)}%
+    </span>
+  )
+}
+
+function KpiCard({
+  label, value, trend, lowerIsBetter = false, sub,
+}: {
+  label: string; value: string; trend?: number | null; lowerIsBetter?: boolean; sub?: string
+}) {
+  return (
+    <div className="bg-[#0A1E2C] border border-[#38435C] rounded-xl p-4">
+      <p className="text-[10px] font-medium text-[#87919E] uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-xl font-bold text-[#EBEBEB] leading-tight">{value}</p>
+      <div className="flex items-center gap-1.5 mt-1">
+        {trend !== undefined && <TrendBadge value={trend ?? null} lowerIsBetter={lowerIsBetter} />}
+        {sub && <span className="text-[10px] text-[#87919E]">{sub}</span>}
+      </div>
+    </div>
+  )
+}
+
+function goalValueFormat(metric: string, value: number) {
+  const currency = ['INVESTMENT', 'SPEND', 'CPL', 'CPA', 'CPC', 'FATURAMENTO', 'TICKET_MEDIO', 'CPS', 'CPM']
+  const pct = ['CTR', 'TAXA_CONVERSAO']
+  const xRate = ['ROAS']
+  if (currency.includes(metric)) return formatCurrency(value)
+  if (pct.includes(metric)) return `${value.toFixed(2)}%`
+  if (xRate.includes(metric)) return `${value.toFixed(2)}x`
+  return formatNumber(value, 0)
+}
+
 export default async function ClientDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
   await requireSession()
   const client = await getClientDetail(slug)
   if (!client) notFound()
-  const metricHistory = await getClientMetricHistory(client.id, 14)
+
+  const [metricHistory, kpis] = await Promise.all([
+    getClientMetricHistory(client.id, 14),
+    getClientKPIs(client.id),
+  ])
+
+  const weeklyGoals = client.goals.filter((g) => g.period === 'WEEKLY')
+  const monthlyGoals = client.goals.filter((g) => g.period === 'MONTHLY')
 
   const overallStatus: HealthStatus | null =
-    client.goals.length === 0
+    weeklyGoals.length === 0
       ? null
-      : client.goals.some((g) => g.healthScores[0]?.status === 'RUIM')
+      : weeklyGoals.some((g) => g.healthScores[0]?.status === 'RUIM')
       ? 'RUIM'
-      : client.goals.some((g) => g.healthScores[0]?.status === 'REGULAR')
+      : weeklyGoals.some((g) => g.healthScores[0]?.status === 'REGULAR')
       ? 'REGULAR'
       : 'OTIMO'
 
-  const totalSpend = client.goals
-    .flatMap((g) => g.healthScores)
-    .reduce((sum, s) => sum + Number(s?.actualValue ?? 0), 0)
+  const hasData = kpis.faturamento > 0 || kpis.investimento > 0 || kpis.sessoes > 0
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <Link
-            href="/clients"
-            className="flex items-center gap-1 text-[#87919E] hover:text-[#EBEBEB] text-sm transition-colors"
-          >
+          <Link href="/clients" className="flex items-center gap-1 text-[#87919E] hover:text-[#EBEBEB] text-sm transition-colors">
             <ArrowLeft size={15} />
             Clientes
           </Link>
@@ -75,9 +124,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
               </div>
               <p className="text-[#87919E] text-sm">
                 {client.industry ?? '—'}{' '}
-                {client.website && (
-                  <span className="text-[#95BBE2]">· {client.website}</span>
-                )}
+                {client.website && <span className="text-[#95BBE2]">· {client.website}</span>}
               </p>
             </div>
           </div>
@@ -88,7 +135,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
         </div>
       </div>
 
-      {/* Top KPI row */}
+      {/* Info cards */}
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardTitle>Gestores</CardTitle>
@@ -103,9 +150,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
                   </div>
                   <span className="text-sm text-[#EBEBEB]">{a.user.name}</span>
                   {a.isPrimary && (
-                    <span className="text-[10px] text-[#95BBE2] bg-[#95BBE2]/10 px-1.5 rounded">
-                      principal
-                    </span>
+                    <span className="text-[10px] text-[#95BBE2] bg-[#95BBE2]/10 px-1.5 rounded">principal</span>
                   )}
                 </div>
               ))
@@ -135,18 +180,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
                       {acc.platform[0]}
                     </span>
                     <div className="min-w-0">
-                      <p className="text-xs text-[#EBEBEB] truncate">
-                        {acc.name ?? platformNames[acc.platform] ?? acc.platform}
-                      </p>
+                      <p className="text-xs text-[#EBEBEB] truncate">{acc.name ?? platformNames[acc.platform] ?? acc.platform}</p>
                       <p className="text-[10px] text-[#87919E] font-mono truncate">{acc.externalId}</p>
                     </div>
                   </div>
-                  {acc.platform === 'META_ADS' && (
-                    <MetaSyncButton platformAccountId={acc.id} />
-                  )}
-                  {acc.platform === 'GA4' && (
-                    <GA4SyncButton platformAccountId={acc.id} />
-                  )}
+                  {acc.platform === 'META_ADS' && <MetaSyncButton platformAccountId={acc.id} />}
+                  {acc.platform === 'GA4' && <GA4SyncButton platformAccountId={acc.id} />}
                 </div>
               ))
             )}
@@ -164,26 +203,96 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
         </Card>
       </div>
 
-      {/* Metas e HealthScores */}
+      {/* ── KPIs do Mês ─────────────────────────────────────────────────────── */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-[#EBEBEB]">Metas da Semana</h2>
-          {client.goals.length === 0 && (
-            <GoalFormModal clientId={client.id} label="Adicionar primeira meta" />
-          )}
+          <div>
+            <h2 className="text-sm font-semibold text-[#EBEBEB]">
+              KPIs do Mês
+              <span className="text-[#87919E] font-normal ml-2 text-xs capitalize">{kpis.periodLabel}</span>
+            </h2>
+            <p className="text-[10px] text-[#87919E] mt-0.5">
+              {kpis.daysElapsed} de {kpis.daysInMonth} dias · vs. mesmo período do mês anterior
+            </p>
+          </div>
         </div>
 
-        {client.goals.length === 0 ? (
-          <Card className="flex flex-col items-center py-12 text-center">
-            <Target size={32} className="text-[#38435C] mb-3" />
-            <p className="text-[#EBEBEB] font-medium">Nenhuma meta cadastrada</p>
-            <p className="text-[#87919E] text-sm mt-1 max-w-xs">
-              Adicione metas semanais para acompanhar a saúde deste cliente automaticamente.
-            </p>
-          </Card>
+        {!hasData ? (
+          <div className="bg-[#0A1E2C] border border-[#38435C] rounded-xl p-6 text-center">
+            <p className="text-[#87919E] text-sm">Sem dados de métricas este mês. Sincronize as plataformas para ver os KPIs.</p>
+          </div>
         ) : (
-          <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
-            {client.goals.map((goal) => {
+          <div className="space-y-3">
+            {/* Row 1 — Financeiro */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+              <KpiCard
+                label="Receita de Compra"
+                value={kpis.faturamento > 0 ? formatCurrency(kpis.faturamento) : '—'}
+                trend={kpis.faturamentoTrend}
+              />
+              <KpiCard
+                label="Investimento"
+                value={kpis.investimento > 0 ? formatCurrency(kpis.investimento) : '—'}
+                trend={kpis.investimentoTrend}
+                lowerIsBetter
+              />
+              <KpiCard
+                label="ROAS"
+                value={kpis.roas !== null ? `${kpis.roas.toFixed(2)}x` : '—'}
+                trend={kpis.roasTrend}
+              />
+              <KpiCard
+                label="Compras"
+                value={kpis.compras > 0 ? kpis.compras.toLocaleString('pt-BR') : '—'}
+                trend={kpis.comprasTrend}
+              />
+              <KpiCard
+                label="Projeção do Mês"
+                value={kpis.projecaoMes !== null ? formatCurrency(kpis.projecaoMes) : '—'}
+                sub={kpis.projecaoMes !== null ? `${kpis.daysElapsed}d de dados` : undefined}
+              />
+            </div>
+
+            {/* Row 2 — Eficiência */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+              <KpiCard
+                label="Sessões"
+                value={kpis.sessoes > 0 ? kpis.sessoes.toLocaleString('pt-BR') : '—'}
+                trend={kpis.sessoesTrend}
+              />
+              <KpiCard
+                label="Taxa de Conversão"
+                value={kpis.taxaConversao !== null ? `${kpis.taxaConversao.toFixed(2)}%` : '—'}
+                trend={kpis.taxaConversaoTrend}
+              />
+              <KpiCard
+                label="Ticket Médio"
+                value={kpis.ticketMedio !== null ? formatCurrency(kpis.ticketMedio) : '—'}
+                trend={kpis.ticketMedioTrend}
+              />
+              <KpiCard
+                label="CPS (Custo/Sessão)"
+                value={kpis.cps !== null ? `R$ ${kpis.cps.toFixed(2)}` : '—'}
+                trend={kpis.cpsTrend}
+                lowerIsBetter
+              />
+              <KpiCard
+                label="CPA / CAC"
+                value={kpis.cpa !== null ? formatCurrency(kpis.cpa) : '—'}
+                trend={kpis.cpaTrend}
+                lowerIsBetter
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Metas do Mês ────────────────────────────────────────────────────── */}
+      {monthlyGoals.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-[#EBEBEB] mb-3">Metas do Mês</h2>
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+            {monthlyGoals.map((goal) => {
               const hs = goal.healthScores[0]
               const status = hs?.status ?? null
               const pct = hs ? Math.round(Number(hs.achievementPct)) : null
@@ -194,52 +303,88 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
                   <CardHeader>
                     <CardTitle>{metricLabels[goal.metric] ?? goal.metric}</CardTitle>
                     {status ? (
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${healthBgClasses[status]}`}
-                      >
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${healthBgClasses[status]}`}>
                         {healthLabels[status]}
                       </span>
                     ) : (
                       <Badge variant="outline">Sem dados</Badge>
                     )}
                   </CardHeader>
-
                   <div className="space-y-2">
                     {actual !== null ? (
                       <div className="flex items-end gap-2">
                         <span className="text-2xl font-bold text-[#EBEBEB]">
-                          {goal.metric === 'INVESTMENT' || goal.metric === 'SPEND'
-                            ? formatCurrency(actual)
-                            : goal.metric === 'ROAS'
-                            ? `${actual.toFixed(2)}x`
-                            : goal.metric === 'CTR'
-                            ? `${actual.toFixed(2)}%`
-                            : goal.metric === 'CPL' || goal.metric === 'CPA' || goal.metric === 'CPC'
-                            ? formatCurrency(actual)
-                            : actual.toLocaleString('pt-BR')}
+                          {goalValueFormat(goal.metric, actual)}
                         </span>
                         <span className="text-xs text-[#87919E] mb-1">
-                          / meta:{' '}
-                          {goal.metric === 'INVESTMENT' || goal.metric === 'SPEND'
-                            ? formatCurrency(Number(goal.targetValue))
-                            : goal.metric === 'ROAS'
-                            ? `${Number(goal.targetValue).toFixed(1)}x`
-                            : goal.metric === 'CTR'
-                            ? `${Number(goal.targetValue).toFixed(1)}%`
-                            : goal.metric === 'CPL' || goal.metric === 'CPA' || goal.metric === 'CPC'
-                            ? formatCurrency(Number(goal.targetValue))
-                            : Number(goal.targetValue).toLocaleString('pt-BR')}
+                          / meta: {goalValueFormat(goal.metric, Number(goal.targetValue))}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[#87919E]">Aguardando sync</p>
+                    )}
+                    {pct !== null && <Progress value={Math.min(pct, 100)} />}
+                    {pct !== null && <p className="text-xs text-[#87919E]">{pct}% da meta atingido</p>}
+                  </div>
+                </Card>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Metas da Semana ──────────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-[#EBEBEB]">Metas da Semana</h2>
+          {weeklyGoals.length === 0 && (
+            <GoalFormModal clientId={client.id} label="Adicionar primeira meta" />
+          )}
+        </div>
+
+        {weeklyGoals.length === 0 ? (
+          <Card className="flex flex-col items-center py-12 text-center">
+            <Target size={32} className="text-[#38435C] mb-3" />
+            <p className="text-[#EBEBEB] font-medium">Nenhuma meta semanal cadastrada</p>
+            <p className="text-[#87919E] text-sm mt-1 max-w-xs">
+              Adicione metas semanais para acompanhar a saúde deste cliente automaticamente.
+            </p>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+            {weeklyGoals.map((goal) => {
+              const hs = goal.healthScores[0]
+              const status = hs?.status ?? null
+              const pct = hs ? Math.round(Number(hs.achievementPct)) : null
+              const actual = hs ? Number(hs.actualValue) : null
+
+              return (
+                <Card key={goal.id}>
+                  <CardHeader>
+                    <CardTitle>{metricLabels[goal.metric] ?? goal.metric}</CardTitle>
+                    {status ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${healthBgClasses[status]}`}>
+                        {healthLabels[status]}
+                      </span>
+                    ) : (
+                      <Badge variant="outline">Sem dados</Badge>
+                    )}
+                  </CardHeader>
+                  <div className="space-y-2">
+                    {actual !== null ? (
+                      <div className="flex items-end gap-2">
+                        <span className="text-2xl font-bold text-[#EBEBEB]">
+                          {goalValueFormat(goal.metric, actual)}
+                        </span>
+                        <span className="text-xs text-[#87919E] mb-1">
+                          / meta: {goalValueFormat(goal.metric, Number(goal.targetValue))}
                         </span>
                       </div>
                     ) : (
                       <p className="text-sm text-[#87919E]">Aguardando sync de dados</p>
                     )}
-
                     {pct !== null && <Progress value={Math.min(pct, 100)} />}
-
-                    {pct !== null && (
-                      <p className="text-xs text-[#87919E]">{pct}% da meta atingido</p>
-                    )}
+                    {pct !== null && <p className="text-xs text-[#87919E]">{pct}% da meta atingido</p>}
                   </div>
                 </Card>
               )
@@ -259,10 +404,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-[#EBEBEB]">Últimas Operações</h2>
-            <Link
-              href={`/operations?client=${client.id}`}
-              className="text-xs text-[#95BBE2] hover:underline"
-            >
+            <Link href={`/operations?client=${client.id}`} className="text-xs text-[#95BBE2] hover:underline">
               Ver todas →
             </Link>
           </div>
