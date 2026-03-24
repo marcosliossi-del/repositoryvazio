@@ -1,9 +1,9 @@
 /**
- * Meta Ads Sync — via Windsor.ai
+ * GA4 Sync — via Windsor.ai
  *
  * Fluxo completo por conta de plataforma:
  *   1. Cria SyncLog (RUNNING)
- *   2. Busca insights diários via Windsor Connector (facebook)
+ *   2. Busca relatório diário via Windsor Connector (googleanalytics4)
  *   3. Transforma e faz upsert de MetricSnapshot
  *   4. Atualiza lastSyncAt na PlatformAccount
  *   5. Finaliza SyncLog (SUCCESS ou FAILED)
@@ -12,18 +12,18 @@
 
 import { prisma } from '@/lib/prisma'
 import { WindsorClient } from '@/services/windsor/client'
-import { transformWindsorMeta } from '@/services/windsor/transformers'
+import { transformWindsorGA4 } from '@/services/windsor/transformers'
 import { recalculateClientHealth } from '@/services/health-scorer'
 import { dispatchAlertsForClient } from '@/services/alert-dispatcher'
 
 interface SyncOptions {
-  since?: string // YYYY-MM-DD (default: 7 dias atrás)
-  until?: string // YYYY-MM-DD (default: hoje)
+  since?: string
+  until?: string
 }
 
-export interface SyncResult {
+export interface GA4SyncResult {
   platformAccountId: string
-  adAccountId: string
+  propertyId: string
   status: 'SUCCESS' | 'FAILED'
   recordsUpserted: number
   errorMessage?: string
@@ -41,10 +41,10 @@ function defaultSince(): string {
   return formatDate(d)
 }
 
-export async function syncMetaAccount(
+export async function syncGA4Account(
   platformAccountId: string,
   options: SyncOptions = {}
-): Promise<SyncResult> {
+): Promise<GA4SyncResult> {
   const account = await prisma.platformAccount.findUnique({
     where: { id: platformAccountId },
     include: { client: { select: { id: true, name: true } } },
@@ -53,7 +53,7 @@ export async function syncMetaAccount(
   if (!account) {
     return {
       platformAccountId,
-      adAccountId: '',
+      propertyId: '',
       status: 'FAILED',
       recordsUpserted: 0,
       errorMessage: 'PlatformAccount não encontrada',
@@ -63,7 +63,7 @@ export async function syncMetaAccount(
   }
 
   const syncLog = await prisma.syncLog.create({
-    data: { platformAccountId, platform: 'META_ADS', status: 'RUNNING' },
+    data: { platformAccountId, platform: 'GA4', status: 'RUNNING' },
   })
 
   const since = options.since ?? defaultSince()
@@ -71,27 +71,24 @@ export async function syncMetaAccount(
 
   try {
     const windsor = new WindsorClient()
-    const rows = await windsor.getMetaInsights(account.externalId, since, until)
+    // Para GA4 no Windsor, o identifier é o nome da propriedade (externalId)
+    const rows = await windsor.getGA4Report(account.externalId, since, until)
 
     let recordsUpserted = 0
 
     for (const row of rows) {
-      const snapshot = transformWindsorMeta(row)
+      const snapshot = transformWindsorGA4(row)
 
       await prisma.metricSnapshot.upsert({
         where: { platformAccountId_date: { platformAccountId, date: snapshot.date } },
         update: {
-          spend: snapshot.spend,
           impressions: snapshot.impressions,
           clicks: snapshot.clicks,
           reach: snapshot.reach,
           frequency: snapshot.frequency,
           ctr: snapshot.ctr,
-          cpc: snapshot.cpc,
           conversions: snapshot.conversions,
           conversionValue: snapshot.conversionValue,
-          roas: snapshot.roas,
-          cpl: snapshot.cpl,
           rawData: snapshot.rawData as object,
           syncedAt: new Date(),
         },
@@ -131,7 +128,7 @@ export async function syncMetaAccount(
 
     return {
       platformAccountId,
-      adAccountId: account.externalId,
+      propertyId: account.externalId,
       status: 'SUCCESS',
       recordsUpserted,
       healthScoresUpdated: created + updated,
@@ -149,14 +146,14 @@ export async function syncMetaAccount(
       data: {
         clientId: account.clientId,
         type: 'SYNC_FAILED',
-        title: `Falha no sync Meta Ads — ${account.client.name}`,
+        title: `Falha no sync GA4 — ${account.client.name}`,
         body: `Não foi possível buscar dados de ${account.externalId}: ${errorMessage}`,
       },
     })
 
     return {
       platformAccountId,
-      adAccountId: account.externalId,
+      propertyId: account.externalId,
       status: 'FAILED',
       recordsUpserted: 0,
       errorMessage,
@@ -166,15 +163,15 @@ export async function syncMetaAccount(
   }
 }
 
-export async function syncAllMetaAccounts(options: SyncOptions = {}): Promise<SyncResult[]> {
+export async function syncAllGA4Accounts(options: SyncOptions = {}): Promise<GA4SyncResult[]> {
   const accounts = await prisma.platformAccount.findMany({
-    where: { platform: 'META_ADS', active: true },
+    where: { platform: 'GA4', active: true },
     select: { id: true },
   })
 
-  const results: SyncResult[] = []
+  const results: GA4SyncResult[] = []
   for (const acc of accounts) {
-    results.push(await syncMetaAccount(acc.id, options))
+    results.push(await syncGA4Account(acc.id, options))
   }
   return results
 }

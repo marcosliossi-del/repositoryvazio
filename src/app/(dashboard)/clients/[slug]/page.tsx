@@ -11,7 +11,9 @@ import { ArrowLeft, Target, BookOpen, RefreshCw } from 'lucide-react'
 import { GoalFormModal } from '@/components/clients/GoalFormModal'
 import { SyncButton } from '@/components/clients/SyncButton'
 import { LinkAccountModal } from '@/components/clients/LinkAccountModal'
+import { LinkGA4Modal } from '@/components/clients/LinkGA4Modal'
 import { MetaSyncButton } from '@/components/clients/MetaSyncButton'
+import { GA4SyncButton } from '@/components/clients/GA4SyncButton'
 import { MetricsChartsGrid } from '@/components/clients/MetricsChartsGrid'
 
 const platformColors: Record<string, string> = {
@@ -114,7 +116,10 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
         <Card>
           <div className="flex items-center justify-between">
             <CardTitle>Plataformas</CardTitle>
-            <LinkAccountModal clientId={client.id} clientSlug={slug} />
+            <div className="flex items-center gap-3">
+              <LinkAccountModal clientId={client.id} clientSlug={slug} />
+              <LinkGA4Modal clientId={client.id} />
+            </div>
           </div>
           <div className="mt-2 space-y-2">
             {client.platformAccounts.length === 0 ? (
@@ -138,6 +143,9 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
                   </div>
                   {acc.platform === 'META_ADS' && (
                     <MetaSyncButton platformAccountId={acc.id} />
+                  )}
+                  {acc.platform === 'GA4' && (
+                    <GA4SyncButton platformAccountId={acc.id} />
                   )}
                 </div>
               ))
