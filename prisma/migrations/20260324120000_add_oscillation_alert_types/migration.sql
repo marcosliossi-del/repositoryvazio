@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "AlertType" ADD VALUE 'KPI_DROP_24H';
+ALTER TYPE "AlertType" ADD VALUE 'KPI_SPIKE_24H';
