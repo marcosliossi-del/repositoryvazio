@@ -146,9 +146,23 @@ export class WindsorClient {
       _renderer: 'json',
     })
 
-    const res = await fetch(`${WINDSOR_BASE}/${connector}?${params}`, {
-      next: { revalidate: 0 },
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 45_000)
+
+    let res: Response
+    try {
+      res = await fetch(`${WINDSOR_BASE}/${connector}?${params}`, {
+        next: { revalidate: 0 },
+        signal: controller.signal,
+      })
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        throw new Error(`Windsor API timeout (${connector}) — sem resposta em 45s`)
+      }
+      throw err
+    } finally {
+      clearTimeout(timeout)
+    }
 
     if (!res.ok) {
       const body = await res.text()
