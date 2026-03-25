@@ -445,21 +445,37 @@ export type ClientKPIs = {
   cacTrend: number | null
 }
 
-export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs> => {
+export const getClientKPIs = cache(async (
+  clientId: string,
+  fromStr?: string,
+  toStr?: string,
+): Promise<ClientKPIs> => {
   const today = new Date()
-  const { start: monthStart } = getMonthRange(today)
-  const daysElapsed = today.getDate()
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
 
-  const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-  const lastMonthSameDay = new Date(today.getFullYear(), today.getMonth() - 1, daysElapsed)
-  lastMonthSameDay.setHours(23, 59, 59, 999)
+  // Default: 1st of current month → yesterday
+  const defaultFrom = new Date(today.getFullYear(), today.getMonth(), 1)
+  const defaultTo   = new Date(today); defaultTo.setDate(defaultTo.getDate() - 1)
+  defaultTo.setHours(23, 59, 59, 999)
+
+  const rangeFrom = fromStr ? new Date(fromStr + 'T00:00:00') : defaultFrom
+  const rangeTo   = toStr   ? new Date(toStr   + 'T23:59:59') : defaultTo
+
+  // Comparison period: same duration immediately before rangeFrom
+  const durationMs   = rangeTo.getTime() - rangeFrom.getTime()
+  const prevTo       = new Date(rangeFrom.getTime() - 1)           // 1ms before start
+  const prevFrom     = new Date(prevTo.getTime() - durationMs)
+
+  const daysInRange  = Math.round(durationMs / 86_400_000) + 1
+  const daysInMonth  = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+
+  // For projection: only relevant when range starts on 1st of a month
+  const isMTD = rangeFrom.getDate() === 1 && rangeFrom.getMonth() === rangeTo.getMonth()
 
   const snapInclude = { platformAccount: { select: { platform: true } } } as const
 
   const [currSnaps, prevSnaps] = await Promise.all([
-    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: monthStart, lte: today } }, include: snapInclude }),
-    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: lastMonthStart, lte: lastMonthSameDay } }, include: snapInclude }),
+    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: rangeFrom, lte: rangeTo } }, include: snapInclude }),
+    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: prevFrom, lte: prevTo } }, include: snapInclude }),
   ])
 
   /**
@@ -510,15 +526,20 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
   const pctChange = (c: number | null, p: number | null): number | null =>
     c !== null && p !== null && p !== 0 ? ((c - p) / Math.abs(p)) * 100 : null
 
-  const projecaoMes = daysElapsed > 0 && curr.revenue > 0
-    ? (curr.revenue / daysElapsed) * daysInMonth
+  const projecaoMes = isMTD && daysInRange > 0 && curr.revenue > 0
+    ? (curr.revenue / daysInRange) * daysInMonth
     : null
 
-  const periodLabel = today.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+  const fmtShort = (d: Date) =>
+    d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+
+  const periodLabel = isMTD && !fromStr
+    ? today.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+    : `${fmtShort(rangeFrom)} – ${fmtShort(rangeTo)}`
 
   return {
     periodLabel,
-    daysElapsed,
+    daysElapsed: daysInRange,
     daysInMonth,
     faturamento: curr.revenue,
     faturamentoTrend: pctChange(curr.revenue, prev.revenue),

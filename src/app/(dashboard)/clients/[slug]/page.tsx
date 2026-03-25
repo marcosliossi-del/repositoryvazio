@@ -19,6 +19,7 @@ import { LinkGA4Modal } from '@/components/clients/LinkGA4Modal'
 import { MetaSyncButton } from '@/components/clients/MetaSyncButton'
 import { GA4SyncButton } from '@/components/clients/GA4SyncButton'
 import { MetricsChartsGrid } from '@/components/clients/MetricsChartsGrid'
+import { DateRangePicker } from '@/components/clients/DateRangePicker'
 import { ClientChatPanel } from '@/components/clients/ClientChatPanel'
 import { WeeklyReportCard } from '@/components/clients/WeeklyReportCard'
 import { GoalPaceCard } from '@/components/clients/GoalPaceCard'
@@ -80,15 +81,29 @@ function goalValueFormat(metric: string, value: number) {
   return formatNumber(value, 0)
 }
 
-export default async function ClientDetailPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ClientDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ from?: string; to?: string }>
+}) {
   const { slug } = await params
+  const { from, to } = await searchParams
   const session = await requireSession()
   const client = await getClientDetail(slug)
   if (!client) notFound()
 
+  // Default: 1st of current month → yesterday
+  const today = new Date()
+  const defaultFrom = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
+  const defaultTo = new Date(today.setDate(today.getDate() - 1)).toISOString().split('T')[0]
+  const activeFrom = from ?? defaultFrom
+  const activeTo = to ?? defaultTo
+
   const [metricHistory, kpis, paceGoals, chat, weeklyReport, campaigns, campaignInsight] = await Promise.all([
     getClientMetricHistory(client.id, 14),
-    getClientKPIs(client.id),
+    getClientKPIs(client.id, activeFrom, activeTo),
     getGoalPaceMetrics(client.id),
     getClientChat(client.id),
     getClientWeeklyReport(client.id),
@@ -219,13 +234,14 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
         <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-sm font-semibold text-[#EBEBEB]">
-              KPIs do Mês
+              KPIs
               <span className="text-[#87919E] font-normal ml-2 text-xs capitalize">{kpis.periodLabel}</span>
             </h2>
             <p className="text-[10px] text-[#87919E] mt-0.5">
-              {kpis.daysElapsed} de {kpis.daysInMonth} dias · vs. mesmo período do mês anterior
+              {kpis.daysElapsed} dias · vs. período anterior equivalente
             </p>
           </div>
+          <DateRangePicker from={activeFrom} to={activeTo} />
         </div>
 
         {!hasData ? (
