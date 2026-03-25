@@ -1,9 +1,9 @@
 /**
- * GA4 Sync — via Windsor.ai
+ * GA4 Sync — via Google Analytics Data API (nativa)
  *
  * Fluxo completo por conta de plataforma:
  *   1. Cria SyncLog (RUNNING)
- *   2. Busca relatório diário via Windsor Connector (googleanalytics4)
+ *   2. Busca relatório diário via GA4 Data API
  *   3. Transforma e faz upsert de MetricSnapshot
  *   4. Atualiza lastSyncAt na PlatformAccount
  *   5. Finaliza SyncLog (SUCCESS ou FAILED)
@@ -11,8 +11,8 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { WindsorClient } from '@/services/windsor/client'
-import { transformWindsorGA4, type WindsorGA4TransformedSnapshot } from '@/services/windsor/transformers'
+import { GA4Client } from './client'
+import { transformGA4Row } from './transformers'
 import { recalculateClientHealth } from '@/services/health-scorer'
 import { dispatchAlertsForClient } from '@/services/alert-dispatcher'
 
@@ -70,23 +70,21 @@ export async function syncGA4Account(
   const until = options.until ?? formatDate(new Date())
 
   try {
-    const windsor = new WindsorClient()
-    // Para GA4 no Windsor, o identifier é o nome da propriedade (externalId)
-    const rows = await windsor.getGA4Report(account.externalId, since, until)
+    const ga4 = new GA4Client()
+    const rows = await ga4.getReport(account.externalId, since, until)
 
     let recordsUpserted = 0
 
     for (const row of rows) {
-      const snapshot = transformWindsorGA4(row)
+      const snapshot = transformGA4Row(row)
 
-      const ga4snap = snapshot as WindsorGA4TransformedSnapshot
       await prisma.metricSnapshot.upsert({
         where: { platformAccountId_date: { platformAccountId, date: snapshot.date } },
         update: {
           impressions:     snapshot.impressions,
           clicks:          snapshot.clicks,
           reach:           snapshot.reach,
-          newUsers:        ga4snap.newUsers,
+          newUsers:        snapshot.newUsers,
           frequency:       snapshot.frequency,
           ctr:             snapshot.ctr,
           conversions:     snapshot.conversions,
@@ -102,7 +100,7 @@ export async function syncGA4Account(
           impressions:     snapshot.impressions,
           clicks:          snapshot.clicks,
           reach:           snapshot.reach,
-          newUsers:        ga4snap.newUsers,
+          newUsers:        snapshot.newUsers,
           frequency:       snapshot.frequency,
           ctr:             snapshot.ctr,
           cpc:             snapshot.cpc,

@@ -24,6 +24,7 @@ export interface GA4TransformedSnapshot {
   impressions: number
   clicks: number
   reach: number
+  newUsers: number | null
   frequency: number
   ctr: number
   cpc: number
@@ -46,6 +47,7 @@ export function transformGA4Row(row: GA4Row): GA4TransformedSnapshot {
   const sessions = parseInt(row.sessions || '0')
   const pageViews = parseInt(row.screenPageViews || '0')
   const activeUsers = parseInt(row.activeUsers || '0')
+  const newUsersRaw = parseInt(row.newUsers || '0')
   // engagementRate vem como decimal (ex: 0.6523 = 65.23%)
   const engagementRate = parseFloat(row.engagementRate || '0') * 100
   const conversionsRaw = parseInt(row.conversions || '0')
@@ -59,6 +61,7 @@ export function transformGA4Row(row: GA4Row): GA4TransformedSnapshot {
     impressions: pageViews,
     clicks: sessions,
     reach: activeUsers,
+    newUsers: newUsersRaw > 0 ? newUsersRaw : null,
     frequency: Math.round(frequency * 10000) / 10000,
     ctr: Math.round(engagementRate * 100) / 100,
     cpc: 0,
