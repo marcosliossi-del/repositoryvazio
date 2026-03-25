@@ -4,6 +4,7 @@ import {
   requireSession, getClientDetail, getClientMetricHistory,
   getClientKPIs, getGoalPaceMetrics, getClientChat, getClientWeeklyReport,
   getClientCampaigns, getLatestCampaignInsight, metricLabels,
+  getClientDailyRevenue, getClientMonthlyComparison,
 } from '@/lib/dal'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardValue } from '@/components/ui/card'
@@ -25,6 +26,8 @@ import { WeeklyReportCard } from '@/components/clients/WeeklyReportCard'
 import { GoalPaceCard } from '@/components/clients/GoalPaceCard'
 import { CampaignBreakdownTable } from '@/components/clients/CampaignBreakdownTable'
 import { CampaignInsightCard } from '@/components/clients/CampaignInsightCard'
+import { RevenuePaceChart } from '@/components/clients/RevenuePaceChart'
+import { MonthlyComparisonChart } from '@/components/clients/MonthlyComparisonChart'
 
 const platformColors: Record<string, string> = {
   META_ADS: '#1877F2',

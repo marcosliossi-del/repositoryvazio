@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { healthLabels } from '@/lib/health'
+import { formatCurrency } from '@/lib/utils'
 import { Plus, Search } from 'lucide-react'
 
 const platformIcons: Record<string, string> = {
@@ -74,6 +75,9 @@ export default async function ClientsPage() {
                 <th className="text-left text-xs font-semibold text-[#87919E] uppercase tracking-wider px-4 py-3">
                   Plataformas
                 </th>
+                <th className="text-right text-xs font-semibold text-[#87919E] uppercase tracking-wider px-4 py-3">Receita MTD</th>
+                <th className="text-right text-xs font-semibold text-[#87919E] uppercase tracking-wider px-4 py-3">Invest. MTD</th>
+                <th className="text-right text-xs font-semibold text-[#87919E] uppercase tracking-wider px-4 py-3">ROAS</th>
                 <th className="text-left text-xs font-semibold text-[#87919E] uppercase tracking-wider px-4 py-3 w-48">
                   Atingimento
                 </th>
@@ -119,6 +123,21 @@ export default async function ClientsPage() {
                         ))
                       )}
                     </div>
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    <span className={`text-sm font-medium ${client.monthRevenue > 0 ? 'text-[#22C55E]' : 'text-[#87919E]'}`}>
+                      {client.monthRevenue > 0 ? formatCurrency(client.monthRevenue) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    <span className="text-sm text-[#87919E]">
+                      {client.monthSpend > 0 ? formatCurrency(client.monthSpend) : '—'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    <span className={`text-sm font-semibold ${client.monthRoas !== null ? (client.monthRoas >= 3 ? 'text-[#22C55E]' : client.monthRoas >= 1.5 ? 'text-[#F59E0B]' : 'text-[#EF4444]') : 'text-[#87919E]'}`}>
+                      {client.monthRoas !== null ? `${client.monthRoas.toFixed(2)}x` : '—'}
+                    </span>
                   </td>
                   <td className="px-4 py-4">
                     {client.overallStatus ? (

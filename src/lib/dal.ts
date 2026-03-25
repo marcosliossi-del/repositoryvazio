@@ -295,6 +295,9 @@ export type ClientListItem = {
   overallStatus: HealthStatus | null
   achievementPct: number
   platforms: string[]
+  monthRevenue: number
+  monthSpend: number
+  monthRoas: number | null
 }
 
 export const getClientsList = cache(async (userId: string, role: string) => {
@@ -322,6 +325,24 @@ export const getClientsList = cache(async (userId: string, role: string) => {
     orderBy: { name: 'asc' },
   })
 
+  // Fetch current month KPIs for all clients in one query
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const allSnaps = await prisma.metricSnapshot.findMany({
+    where: { clientId: { in: clients.map((c) => c.id) }, date: { gte: monthStart } },
+    select: { clientId: true, spend: true, conversionValue: true, platformAccount: { select: { platform: true } } },
+  })
+  const kpiMap = new Map<string, { revenue: number; spend: number }>()
+  for (const s of allSnaps) {
+    if (!kpiMap.has(s.clientId)) kpiMap.set(s.clientId, { revenue: 0, spend: 0 })
+    const k = kpiMap.get(s.clientId)!
+    if (s.platformAccount.platform === 'GA4') {
+      k.revenue += Number(s.conversionValue ?? 0)
+    } else {
+      k.spend += Number(s.spend ?? 0)
+    }
+  }
+
   return clients.map((c): ClientListItem => {
     const scores = c.healthScores
     const avgPct =
@@ -348,6 +369,12 @@ export const getClientsList = cache(async (userId: string, role: string) => {
       overallStatus,
       achievementPct: Math.round(avgPct),
       platforms: [...new Set(c.platformAccounts.map((p) => p.platform))],
+      monthRevenue: kpiMap.get(c.id)?.revenue ?? 0,
+      monthSpend:   kpiMap.get(c.id)?.spend ?? 0,
+      monthRoas:    (() => {
+        const k = kpiMap.get(c.id)
+        return k && k.spend > 0 && k.revenue > 0 ? Math.round((k.revenue / k.spend) * 100) / 100 : null
+      })(),
     }
   })
 })
@@ -668,6 +695,110 @@ export const getClientMetricHistory = cache(async (clientId: string, days = 14):
 
   return result
 })
+
+// ─── Client daily revenue (for revenue pace chart) ────────────────────────────
+
+export type DailyRevenuePoint = {
+  date: string       // 'YYYY-MM-DD'
+  revenue: number    // daily GA4 revenue
+  spend: number      // daily ad spend
+  accumulated: number // running total
+}
+
+export async function getClientDailyRevenue(
+  clientId: string,
+  fromStr: string,
+  toStr: string
+): Promise<DailyRevenuePoint[]> {
+  const from = new Date(fromStr + 'T00:00:00')
+  const to = new Date(toStr + 'T23:59:59')
+
+  const snapshots = await prisma.metricSnapshot.findMany({
+    where: { clientId, date: { gte: from, lte: to } },
+    select: {
+      date: true,
+      spend: true,
+      conversionValue: true,
+      platformAccount: { select: { platform: true } },
+    },
+    orderBy: { date: 'asc' },
+  })
+
+  const byDate = new Map<string, { revenue: number; spend: number }>()
+  for (const s of snapshots) {
+    const key = s.date.toISOString().slice(0, 10)
+    if (!byDate.has(key)) byDate.set(key, { revenue: 0, spend: 0 })
+    const d = byDate.get(key)!
+    if (s.platformAccount.platform === 'GA4') {
+      d.revenue += Number(s.conversionValue ?? 0)
+    } else {
+      d.spend += Number(s.spend ?? 0)
+    }
+  }
+
+  const result: DailyRevenuePoint[] = []
+  let accumulated = 0
+  const current = new Date(from)
+  while (current <= to) {
+    const key = current.toISOString().slice(0, 10)
+    const agg = byDate.get(key) ?? { revenue: 0, spend: 0 }
+    accumulated += agg.revenue
+    result.push({ date: key, revenue: agg.revenue, spend: agg.spend, accumulated })
+    current.setDate(current.getDate() + 1)
+  }
+  return result
+}
+
+// ─── Client monthly comparison (for 6-month chart) ────────────────────────────
+
+export type MonthlyDataPoint = {
+  month: string      // 'Jan 26'
+  revenue: number
+  spend: number
+  roas: number | null
+}
+
+export async function getClientMonthlyComparison(
+  clientId: string,
+  months = 6
+): Promise<MonthlyDataPoint[]> {
+  const now = new Date()
+  const MONTH_NAMES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  const result: MonthlyDataPoint[] = []
+
+  for (let i = months - 1; i >= 0; i--) {
+    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0)
+    monthEnd.setHours(23, 59, 59, 999)
+
+    const snapshots = await prisma.metricSnapshot.findMany({
+      where: { clientId, date: { gte: monthStart, lte: monthEnd } },
+      select: {
+        spend: true,
+        conversionValue: true,
+        platformAccount: { select: { platform: true } },
+      },
+    })
+
+    let revenue = 0, spend = 0
+    for (const s of snapshots) {
+      if (s.platformAccount.platform === 'GA4') {
+        revenue += Number(s.conversionValue ?? 0)
+      } else {
+        spend += Number(s.spend ?? 0)
+      }
+    }
+
+    result.push({
+      month: `${MONTH_NAMES[monthDate.getMonth()]} ${String(monthDate.getFullYear()).slice(2)}`,
+      revenue,
+      spend,
+      roas: spend > 0 && revenue > 0 ? Math.round((revenue / spend) * 100) / 100 : null,
+    })
+  }
+  return result
+}
 
 // ─── Clients for select dropdowns ─────────────────────────────────────────────
 
