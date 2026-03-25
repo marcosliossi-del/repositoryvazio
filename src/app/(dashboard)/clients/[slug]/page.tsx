@@ -104,7 +104,7 @@ export default async function ClientDetailPage({
   const activeFrom = from ?? defaultFrom
   const activeTo = to ?? defaultTo
 
-  const [metricHistory, kpis, paceGoals, chat, weeklyReport, campaigns, campaignInsight] = await Promise.all([
+  const [metricHistory, kpis, paceGoals, chat, weeklyReport, campaigns, campaignInsight, dailyRevenue, monthlyComparison] = await Promise.all([
     getClientMetricHistory(client.id, 14),
     getClientKPIs(client.id, activeFrom, activeTo),
     getGoalPaceMetrics(client.id),
@@ -112,6 +112,8 @@ export default async function ClientDetailPage({
     getClientWeeklyReport(client.id),
     getClientCampaigns(client.id, 7),
     getLatestCampaignInsight(client.id),
+    getClientDailyRevenue(client.id, activeFrom, activeTo),
+    getClientMonthlyComparison(client.id),
   ])
 
   const weeklyGoals = client.goals.filter((g) => g.period === 'WEEKLY')
@@ -344,6 +346,15 @@ export default async function ClientDetailPage({
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Revenue Pace + Monthly Comparison ────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <RevenuePaceChart
+          data={dailyRevenue}
+          goal={monthlyGoals.find((g) => g.metric === 'FATURAMENTO') ? Number(monthlyGoals.find((g) => g.metric === 'FATURAMENTO')!.targetValue) : null}
+        />
+        <MonthlyComparisonChart data={monthlyComparison} />
       </div>
 
       {/* ── Metas do Mês ────────────────────────────────────────────────────── */}
