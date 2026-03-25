@@ -50,8 +50,11 @@ export function transformGA4Row(row: GA4Row): GA4TransformedSnapshot {
   const newUsersRaw = parseInt(row.newUsers || '0')
   // engagementRate vem como decimal (ex: 0.6523 = 65.23%)
   const engagementRate = parseFloat(row.engagementRate || '0') * 100
-  const conversionsRaw = parseInt(row.conversions || '0')
+  const purchasesRaw = parseInt(row.ecommercePurchases || '0')
+  // purchaseRevenue é mais preciso para e-commerce; totalRevenue como fallback
+  const purchaseRevenue = parseFloat(row.purchaseRevenue || '0')
   const totalRevenue = parseFloat(row.totalRevenue || '0')
+  const revenue = purchaseRevenue > 0 ? purchaseRevenue : totalRevenue
 
   const frequency = sessions > 0 ? pageViews / sessions : 0
 
@@ -65,8 +68,8 @@ export function transformGA4Row(row: GA4Row): GA4TransformedSnapshot {
     frequency: Math.round(frequency * 10000) / 10000,
     ctr: Math.round(engagementRate * 100) / 100,
     cpc: 0,
-    conversions: conversionsRaw > 0 ? conversionsRaw : null,
-    conversionValue: totalRevenue > 0 ? Math.round(totalRevenue * 100) / 100 : null,
+    conversions: purchasesRaw > 0 ? purchasesRaw : null,
+    conversionValue: revenue > 0 ? Math.round(revenue * 100) / 100 : null,
     roas: null,
     cpl: null,
     rawData: row,

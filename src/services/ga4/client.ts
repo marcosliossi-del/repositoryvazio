@@ -14,9 +14,10 @@ export interface GA4Row {
   sessions: string
   screenPageViews: string
   activeUsers: string
-  engagementRate: string // decimal, ex: "0.6523"
-  conversions: string
-  totalRevenue: string
+  engagementRate: string  // decimal, ex: "0.6523"
+  ecommercePurchases: string  // compras de e-commerce (evento purchase)
+  purchaseRevenue: string     // receita de compras (purchase events)
+  totalRevenue: string        // receita total (purchase + ads + subscriptions)
   newUsers: string
 }
 
@@ -35,7 +36,8 @@ const METRIC_NAMES = [
   'screenPageViews',
   'activeUsers',
   'engagementRate',
-  'conversions',
+  'ecommercePurchases',
+  'purchaseRevenue',
   'totalRevenue',
   'newUsers',
 ]
@@ -227,9 +229,10 @@ export class GA4Client {
       screenPageViews: row.metricValues[1].value,
       activeUsers: row.metricValues[2].value,
       engagementRate: row.metricValues[3].value,
-      conversions: row.metricValues[4].value,
-      totalRevenue: row.metricValues[5].value,
-      newUsers: row.metricValues[6].value,
+      ecommercePurchases: row.metricValues[4].value,
+      purchaseRevenue: row.metricValues[5].value,
+      totalRevenue: row.metricValues[6].value,
+      newUsers: row.metricValues[7].value,
     }))
   }
 }
