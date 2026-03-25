@@ -1,7 +1,12 @@
 /**
  * Cliente para a Google Analytics Data API v1beta.
- * Autenticação via Service Account (JWT → OAuth2 token).
+ * Autenticação via OAuth2 (refresh token → access token).
  * Sem SDK externo — usa fetch nativo.
+ *
+ * Variáveis de ambiente necessárias:
+ *   GOOGLE_CLIENT_ID      — OAuth2 client ID
+ *   GOOGLE_CLIENT_SECRET  — OAuth2 client secret
+ *   GOOGLE_REFRESH_TOKEN  — refresh token obtido via OAuth Playground
  */
 
 export interface GA4Row {
@@ -22,15 +27,8 @@ export interface GA4ItemRow {
   itemsPurchased: string
 }
 
-interface ServiceAccountKey {
-  client_email: string
-  private_key: string
-  token_uri?: string
-}
-
 const GA4_BASE = 'https://analyticsdata.googleapis.com/v1beta'
 const TOKEN_URI = 'https://oauth2.googleapis.com/token'
-const SCOPE = 'https://www.googleapis.com/auth/analytics.readonly'
 
 const METRIC_NAMES = [
   'sessions',
@@ -42,66 +40,15 @@ const METRIC_NAMES = [
   'newUsers',
 ]
 
-function base64urlEncode(data: string | ArrayBuffer): string {
-  let bytes: Uint8Array
-  if (typeof data === 'string') {
-    bytes = new TextEncoder().encode(data)
-  } else {
-    bytes = new Uint8Array(data)
-  }
-  let str = ''
-  bytes.forEach((b) => (str += String.fromCharCode(b)))
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
-
-async function importPrivateKey(pem: string): Promise<CryptoKey> {
-  const b64 = pem
-    .replace(/-----BEGIN PRIVATE KEY-----/, '')
-    .replace(/-----END PRIVATE KEY-----/, '')
-    .replace(/\s+/g, '')
-  const binary = Buffer.from(b64, 'base64')
-  return crypto.subtle.importKey(
-    'pkcs8',
-    binary,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-}
-
-async function createJWT(serviceAccount: ServiceAccountKey): Promise<string> {
-  const now = Math.floor(Date.now() / 1000)
-  const header = { alg: 'RS256', typ: 'JWT' }
-  const payload = {
-    iss: serviceAccount.client_email,
-    scope: SCOPE,
-    aud: serviceAccount.token_uri ?? TOKEN_URI,
-    exp: now + 3600,
-    iat: now,
-  }
-
-  const headerB64 = base64urlEncode(JSON.stringify(header))
-  const payloadB64 = base64urlEncode(JSON.stringify(payload))
-  const signingInput = `${headerB64}.${payloadB64}`
-
-  const key = await importPrivateKey(serviceAccount.private_key)
-  const signature = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5',
-    key,
-    new TextEncoder().encode(signingInput)
-  )
-
-  return `${signingInput}.${base64urlEncode(signature)}`
-}
-
-async function getAccessToken(serviceAccount: ServiceAccountKey): Promise<string> {
-  const jwt = await createJWT(serviceAccount)
+async function getAccessToken(clientId: string, clientSecret: string, refreshToken: string): Promise<string> {
   const res = await fetch(TOKEN_URI, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: jwt,
+      grant_type: 'refresh_token',
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
     }),
   })
 
@@ -119,17 +66,28 @@ function normalizePropertyId(propertyId: string): string {
 }
 
 export class GA4Client {
-  private serviceAccount: ServiceAccountKey
+  private clientId: string
+  private clientSecret: string
+  private refreshToken: string
 
   constructor() {
-    const key = process.env.GA4_SERVICE_ACCOUNT_KEY
-    if (!key) throw new Error('GA4_SERVICE_ACCOUNT_KEY não configurada')
+    const clientId = process.env.GOOGLE_CLIENT_ID
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+    const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
 
-    try {
-      this.serviceAccount = JSON.parse(key) as ServiceAccountKey
-    } catch {
-      throw new Error('GA4_SERVICE_ACCOUNT_KEY não é um JSON válido')
+    if (!clientId || !clientSecret || !refreshToken) {
+      throw new Error(
+        'Credenciais GA4 não configuradas. Configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e GOOGLE_REFRESH_TOKEN.'
+      )
     }
+
+    this.clientId = clientId
+    this.clientSecret = clientSecret
+    this.refreshToken = refreshToken
+  }
+
+  private async token(): Promise<string> {
+    return getAccessToken(this.clientId, this.clientSecret, this.refreshToken)
   }
 
   /**
@@ -139,7 +97,7 @@ export class GA4Client {
     propertyId: string
   ): Promise<{ valid: boolean; error?: string }> {
     try {
-      const token = await getAccessToken(this.serviceAccount)
+      const token = await this.token()
       const normalized = normalizePropertyId(propertyId)
 
       const res = await fetch(`${GA4_BASE}/${normalized}/metadata`, {
@@ -162,15 +120,14 @@ export class GA4Client {
 
   /**
    * Busca o relatório de itens (produtos) de e-commerce para um período.
-   * Retorna os top produtos por receita, com nome, categoria, receita e unidades vendidas.
    */
   async getItemReport(
     propertyId: string,
-    since: string, // "YYYY-MM-DD"
-    until: string, // "YYYY-MM-DD"
+    since: string,
+    until: string,
     limit = 10
   ): Promise<GA4ItemRow[]> {
-    const token = await getAccessToken(this.serviceAccount)
+    const token = await this.token()
     const normalized = normalizePropertyId(propertyId)
 
     const body = {
@@ -225,10 +182,10 @@ export class GA4Client {
    */
   async getReport(
     propertyId: string,
-    since: string, // "YYYY-MM-DD"
-    until: string  // "YYYY-MM-DD"
+    since: string,
+    until: string
   ): Promise<GA4Row[]> {
-    const token = await getAccessToken(this.serviceAccount)
+    const token = await this.token()
     const normalized = normalizePropertyId(propertyId)
 
     const body = {
