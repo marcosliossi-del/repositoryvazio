@@ -237,25 +237,29 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
             {/* Row 1 — Financeiro */}
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
               <KpiCard
-                label="Receita de Compra"
+                label="Receita (GA4)"
                 value={kpis.faturamento > 0 ? formatCurrency(kpis.faturamento) : '—'}
                 trend={kpis.faturamentoTrend}
+                sub="fonte: GA4"
               />
               <KpiCard
-                label="Investimento"
+                label="Investimento Total"
                 value={kpis.investimento > 0 ? formatCurrency(kpis.investimento) : '—'}
                 trend={kpis.investimentoTrend}
                 lowerIsBetter
+                sub="Meta + Google + TikTok"
               />
               <KpiCard
-                label="ROAS"
+                label="ROAS Total"
                 value={kpis.roas !== null ? `${kpis.roas.toFixed(2)}x` : '—'}
                 trend={kpis.roasTrend}
+                sub="GA4 receita / invest. total"
               />
               <KpiCard
-                label="Compras"
+                label="Compras (GA4)"
                 value={kpis.compras > 0 ? kpis.compras.toLocaleString('pt-BR') : '—'}
                 trend={kpis.comprasTrend}
+                sub="fonte: GA4"
               />
               <KpiCard
                 label="Projeção do Mês"
@@ -264,7 +268,31 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ s
               />
             </div>
 
-            {/* Row 2 — Eficiência */}
+            {/* Row 2 — Investimento e ROAS por plataforma */}
+            {(kpis.investimentoMeta > 0 || kpis.investimentoGoogle > 0 || kpis.investimentoTiktok > 0) && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+                {kpis.investimentoMeta > 0 && (
+                  <KpiCard label="Invest. Meta" value={formatCurrency(kpis.investimentoMeta)} lowerIsBetter sub="Meta Ads" />
+                )}
+                {kpis.investimentoGoogle > 0 && (
+                  <KpiCard label="Invest. Google" value={formatCurrency(kpis.investimentoGoogle)} lowerIsBetter sub="Google Ads" />
+                )}
+                {kpis.investimentoTiktok > 0 && (
+                  <KpiCard label="Invest. TikTok" value={formatCurrency(kpis.investimentoTiktok)} lowerIsBetter sub="TikTok Ads" />
+                )}
+                {kpis.roasMeta !== null && (
+                  <KpiCard label="ROAS Meta" value={`${kpis.roasMeta.toFixed(2)}x`} sub="GA4 / Meta spend" />
+                )}
+                {kpis.roasGoogle !== null && (
+                  <KpiCard label="ROAS Google" value={`${kpis.roasGoogle.toFixed(2)}x`} sub="GA4 / Google spend" />
+                )}
+                {kpis.roasTiktok !== null && (
+                  <KpiCard label="ROAS TikTok" value={`${kpis.roasTiktok.toFixed(2)}x`} sub="GA4 / TikTok spend" />
+                )}
+              </div>
+            )}
+
+            {/* Row 3 — Eficiência */}
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
               <KpiCard
                 label="Sessões"

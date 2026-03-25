@@ -408,22 +408,30 @@ export type ClientKPIs = {
   periodLabel: string
   daysElapsed: number
   daysInMonth: number
-  // Financeiro
+  // Financeiro (receita sempre do GA4)
   faturamento: number
   faturamentoTrend: number | null
+  // Investimento total + breakdown por plataforma
   investimento: number
   investimentoTrend: number | null
+  investimentoMeta: number
+  investimentoGoogle: number
+  investimentoTiktok: number
+  // ROAS total e por plataforma (GA4 revenue / platform spend)
   roas: number | null
   roasTrend: number | null
+  roasMeta: number | null
+  roasGoogle: number | null
+  roasTiktok: number | null
   projecaoMes: number | null
-  // Conversão
+  // Conversão (sempre GA4)
   compras: number
   comprasTrend: number | null
   taxaConversao: number | null
   taxaConversaoTrend: number | null
   ticketMedio: number | null
   ticketMedioTrend: number | null
-  // Tráfego
+  // Tráfego (sempre GA4)
   sessoes: number
   sessoesTrend: number | null
   cps: number | null
@@ -432,7 +440,7 @@ export type ClientKPIs = {
   cpmTrend: number | null
   cpa: number | null
   cpaTrend: number | null
-  // CAC — custo por aquisição de novo cliente (spend / novos usuários GA4)
+  // CAC — investimento total / novos usuários GA4
   cac: number | null
   cacTrend: number | null
 }
@@ -447,48 +455,52 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
   const lastMonthSameDay = new Date(today.getFullYear(), today.getMonth() - 1, daysElapsed)
   lastMonthSameDay.setHours(23, 59, 59, 999)
 
+  const snapInclude = { platformAccount: { select: { platform: true } } } as const
+
   const [currSnaps, prevSnaps] = await Promise.all([
-    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: monthStart, lte: today } } }),
-    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: lastMonthStart, lte: lastMonthSameDay } } }),
+    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: monthStart, lte: today } }, include: snapInclude }),
+    prisma.metricSnapshot.findMany({ where: { clientId, date: { gte: lastMonthStart, lte: lastMonthSameDay } }, include: snapInclude }),
   ])
 
   /**
-   * Separamos GA4 (spend=0) dos ad platforms (spend>0) para evitar misturar:
-   *  - sessões GA4 com cliques de anúncio (Meta)
-   *  - impressões de página (GA4) com impressões de anúncio (Meta) para CPM
-   *  - all-events-conversions (GA4) com purchase-conversions (Meta)
+   * Fontes de dados:
+   *  - Receita / Compras / Sessões / CAC → sempre GA4
+   *  - Investimento → soma de todas as plataformas de anúncio (Meta + Google + TikTok)
+   *  - ROAS total = GA4 revenue / investimento total
+   *  - ROAS por plataforma = GA4 revenue / platform spend
    */
   function compute(snaps: typeof currSnaps) {
-    const ga4  = snaps.filter((x) => Number(x.spend ?? 0) === 0)
-    const ads  = snaps.filter((x) => Number(x.spend ?? 0) > 0)
+    const ga4    = snaps.filter((x) => x.platformAccount.platform === 'GA4')
+    const meta   = snaps.filter((x) => x.platformAccount.platform === 'META_ADS')
+    const google = snaps.filter((x) => x.platformAccount.platform === 'GOOGLE_ADS')
+    const tiktok = snaps.filter((x) => x.platformAccount.platform === 'TIKTOK_ADS')
 
-    const spend       = ads.reduce((s, x) => s + Number(x.spend ?? 0), 0)
-    const adImpr      = ads.reduce((s, x) => s + (x.impressions ?? 0), 0)  // impressões de anúncio
-    const sessions    = ga4.reduce((s, x) => s + (x.clicks ?? 0), 0)       // sessões do site (GA4)
+    const metaSpend   = meta.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+    const googleSpend = google.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+    const tiktokSpend = tiktok.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+    const totalSpend  = metaSpend + googleSpend + tiktokSpend
 
-    // Prefer GA4 ecommerce_purchases to avoid double-counting with Meta actions_purchase
-    const ga4Purchases = ga4.reduce((s, x) => s + (x.conversions ?? 0), 0)
-    const adPurchases  = ads.reduce((s, x) => s + (x.conversions ?? 0), 0)
-    const purchases    = ga4Purchases > 0 ? ga4Purchases : adPurchases
+    const revenue  = ga4.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+    const purchases = ga4.reduce((s, x) => s + (x.conversions ?? 0), 0)
+    const sessions  = ga4.reduce((s, x) => s + (x.clicks ?? 0), 0)
+    const newUsers  = ga4.reduce((s, x) => s + (x.newUsers ?? 0), 0)
+    const adImpr    = meta.reduce((s, x) => s + (x.impressions ?? 0), 0)
 
-    // Faturamento: prefere GA4 totalRevenue (todas as vendas), cai em Meta se GA4 = 0
-    const ga4Revenue  = ga4.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
-    const adRevenue   = ads.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
-    const revenue     = ga4Revenue > 0 ? ga4Revenue : adRevenue
-
-    // CAC — custo por novo cliente: spend / novos usuários GA4
-    // (newUsers = visitantes únicos que chegam pela primeira vez no site)
-    const newUsers = ga4.reduce((s, x) => s + (x.newUsers ?? 0), 0)
+    const roas       = totalSpend  > 0 && revenue > 0 ? revenue / totalSpend  : null
+    const roasMeta   = metaSpend   > 0 && revenue > 0 ? revenue / metaSpend   : null
+    const roasGoogle = googleSpend > 0 && revenue > 0 ? revenue / googleSpend : null
+    const roasTiktok = tiktokSpend > 0 && revenue > 0 ? revenue / tiktokSpend : null
 
     return {
-      spend, sessions, purchases, revenue, adImpr, newUsers,
-      roas:          spend > 0 && revenue > 0 ? revenue / spend : null,
+      spend: totalSpend, metaSpend, googleSpend, tiktokSpend,
+      sessions, purchases, revenue, adImpr, newUsers,
+      roas, roasMeta, roasGoogle, roasTiktok,
       ticketMedio:   purchases > 0 && revenue > 0 ? revenue / purchases : null,
       taxaConversao: sessions > 0 && purchases > 0 ? (purchases / sessions) * 100 : null,
-      cps:           sessions > 0 && spend > 0 ? spend / sessions : null,
-      cpm:           adImpr > 0 && spend > 0 ? (spend / adImpr) * 1000 : null,
-      cpa:           purchases > 0 && spend > 0 ? spend / purchases : null,
-      cac:           newUsers > 0 && spend > 0 ? spend / newUsers : null,
+      cps:           sessions > 0 && totalSpend > 0 ? totalSpend / sessions : null,
+      cpm:           adImpr > 0 && metaSpend > 0 ? (metaSpend / adImpr) * 1000 : null,
+      cpa:           purchases > 0 && totalSpend > 0 ? totalSpend / purchases : null,
+      cac:           newUsers > 0 && totalSpend > 0 ? totalSpend / newUsers : null,
     }
   }
 
@@ -512,8 +524,14 @@ export const getClientKPIs = cache(async (clientId: string): Promise<ClientKPIs>
     faturamentoTrend: pctChange(curr.revenue, prev.revenue),
     investimento: curr.spend,
     investimentoTrend: pctChange(curr.spend, prev.spend),
+    investimentoMeta:   curr.metaSpend,
+    investimentoGoogle: curr.googleSpend,
+    investimentoTiktok: curr.tiktokSpend,
     roas: curr.roas,
     roasTrend: pctChange(curr.roas, prev.roas),
+    roasMeta:   curr.roasMeta,
+    roasGoogle: curr.roasGoogle,
+    roasTiktok: curr.roasTiktok,
     projecaoMes,
     compras: curr.purchases,
     comprasTrend: pctChange(curr.purchases, prev.purchases),
@@ -562,20 +580,17 @@ export const metricLabels: Record<string, string> = {
 
 export type MetricHistoryPoint = {
   date: string // 'YYYY-MM-DD'
-  spend: number | null
-  impressions: number | null
-  clicks: number | null
-  reach: number | null
-  conversions: number | null
-  roas: number | null
-  ctr: number | null
-  cpc: number | null
-  cpl: number | null
+  spend: number | null       // investimento total (todas as plataformas de anúncio)
+  conversions: number | null // compras GA4
+  roas: number | null        // GA4 revenue / spend total
+  taxaConversao: number | null // GA4 purchases / GA4 sessions × 100
+  ticketMedio: number | null   // GA4 revenue / GA4 purchases
+  cps: number | null           // spend total / GA4 sessions
 }
 
 /**
- * Returns the last `days` of daily aggregated MetricSnapshots for a client
- * (summing across all platform accounts).
+ * Últimos `days` dias de métricas diárias agregadas para um cliente.
+ * Receita/compras/sessões → GA4 | Investimento → plataformas de anúncio.
  */
 export const getClientMetricHistory = cache(async (clientId: string, days = 14): Promise<MetricHistoryPoint[]> => {
   const since = new Date()
@@ -585,35 +600,29 @@ export const getClientMetricHistory = cache(async (clientId: string, days = 14):
   const snapshots = await prisma.metricSnapshot.findMany({
     where: { clientId, date: { gte: since } },
     orderBy: { date: 'asc' },
+    include: { platformAccount: { select: { platform: true } } },
   })
 
-  // Group by date string, aggregate across accounts
   const byDate = new Map<string, {
-    spend: number; impressions: number; clicks: number; reach: number;
-    conversions: number; conversionValue: number; hasData: boolean;
-    ctrSum: number; cpcSum: number; cplSum: number; count: number;
+    spend: number; ga4Revenue: number; ga4Purchases: number; ga4Sessions: number; hasData: boolean;
   }>()
 
   for (const s of snapshots) {
     const key = s.date.toISOString().slice(0, 10)
     if (!byDate.has(key)) {
-      byDate.set(key, { spend: 0, impressions: 0, clicks: 0, reach: 0, conversions: 0, conversionValue: 0, hasData: false, ctrSum: 0, cpcSum: 0, cplSum: 0, count: 0 })
+      byDate.set(key, { spend: 0, ga4Revenue: 0, ga4Purchases: 0, ga4Sessions: 0, hasData: false })
     }
     const d = byDate.get(key)!
     d.hasData = true
-    d.count++
-    d.spend += Number(s.spend ?? 0)
-    d.impressions += s.impressions ?? 0
-    d.clicks += s.clicks ?? 0
-    d.reach += s.reach ?? 0
-    d.conversions += s.conversions ?? 0
-    d.conversionValue += Number(s.conversionValue ?? 0)
-    d.ctrSum += Number(s.ctr ?? 0)
-    d.cpcSum += Number(s.cpc ?? 0)
-    d.cplSum += Number(s.cpl ?? 0)
+    if (s.platformAccount.platform === 'GA4') {
+      d.ga4Revenue   += Number(s.conversionValue ?? 0)
+      d.ga4Purchases += s.conversions ?? 0
+      d.ga4Sessions  += s.clicks ?? 0  // GA4: clicks = sessões
+    } else {
+      d.spend += Number(s.spend ?? 0)
+    }
   }
 
-  // Fill every day in range (including days with no data as null)
   const result: MetricHistoryPoint[] = []
   for (let i = 0; i < days; i++) {
     const d = new Date(since)
@@ -622,20 +631,16 @@ export const getClientMetricHistory = cache(async (clientId: string, days = 14):
     const agg = byDate.get(key)
 
     if (!agg || !agg.hasData) {
-      result.push({ date: key, spend: null, impressions: null, clicks: null, reach: null, conversions: null, roas: null, ctr: null, cpc: null, cpl: null })
+      result.push({ date: key, spend: null, conversions: null, roas: null, taxaConversao: null, ticketMedio: null, cps: null })
     } else {
-      const roas = agg.spend > 0 ? agg.conversionValue / agg.spend : null
       result.push({
         date: key,
-        spend: agg.spend,
-        impressions: agg.impressions || null,
-        clicks: agg.clicks || null,
-        reach: agg.reach || null,
-        conversions: agg.conversions || null,
-        roas,
-        ctr: agg.count > 0 ? agg.ctrSum / agg.count : null,
-        cpc: agg.count > 0 ? agg.cpcSum / agg.count : null,
-        cpl: agg.count > 0 ? agg.cplSum / agg.count : null,
+        spend:         agg.spend || null,
+        conversions:   agg.ga4Purchases || null,
+        roas:          agg.spend > 0 && agg.ga4Revenue > 0 ? agg.ga4Revenue / agg.spend : null,
+        taxaConversao: agg.ga4Sessions > 0 && agg.ga4Purchases > 0 ? (agg.ga4Purchases / agg.ga4Sessions) * 100 : null,
+        ticketMedio:   agg.ga4Purchases > 0 && agg.ga4Revenue > 0 ? agg.ga4Revenue / agg.ga4Purchases : null,
+        cps:           agg.ga4Sessions > 0 && agg.spend > 0 ? agg.spend / agg.ga4Sessions : null,
       })
     }
   }

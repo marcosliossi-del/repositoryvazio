@@ -27,12 +27,12 @@ interface ChartConfig {
 }
 
 const CHARTS: ChartConfig[] = [
-  { key: 'spend',       label: 'Investimento (R$)', type: 'area',  color: '#95BBE2', format: (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
-  { key: 'roas',        label: 'ROAS',              type: 'line',  color: '#22C55E', format: (v) => `${v.toFixed(2)}x` },
-  { key: 'conversions', label: 'Conversões',        type: 'area',  color: '#A78BFA', format: (v) => v.toLocaleString('pt-BR') },
-  { key: 'cpl',         label: 'CPL (R$)',          type: 'line',  color: '#F59E0B', format: (v) => `R$ ${v.toFixed(2)}`, lowerIsBetter: true },
-  { key: 'clicks',      label: 'Cliques',           type: 'area',  color: '#95BBE2', format: (v) => v.toLocaleString('pt-BR') },
-  { key: 'impressions', label: 'Impressões',        type: 'area',  color: '#87919E', format: (v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v) },
+  { key: 'spend',         label: 'Investimento (R$)',     type: 'area', color: '#95BBE2', format: (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+  { key: 'roas',          label: 'ROAS',                  type: 'line', color: '#22C55E', format: (v) => `${v.toFixed(2)}x` },
+  { key: 'conversions',   label: 'Compras (GA4)',         type: 'area', color: '#A78BFA', format: (v) => v.toLocaleString('pt-BR') },
+  { key: 'taxaConversao', label: 'Taxa de Conversão (%)', type: 'line', color: '#F59E0B', format: (v) => `${v.toFixed(2)}%` },
+  { key: 'ticketMedio',   label: 'Ticket Médio (R$)',     type: 'line', color: '#34D399', format: (v) => `R$ ${v.toFixed(2)}` },
+  { key: 'cps',           label: 'CPS — Custo/Sessão',   type: 'line', color: '#F87171', format: (v) => `R$ ${v.toFixed(2)}`, lowerIsBetter: true },
 ]
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
