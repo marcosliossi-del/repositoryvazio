@@ -341,7 +341,7 @@ export default async function ClientDetailPage({
                 value={kpis.cac !== null ? formatCurrency(kpis.cac) : '—'}
                 trend={kpis.cacTrend}
                 lowerIsBetter
-                sub={kpis.cac !== null ? 'invest / novos usuários GA4' : 'requer sync GA4'}
+                sub={kpis.cac !== null ? 'invest / novos compradores' : 'requer sync GA4'}
               />
             </div>
           </div>
