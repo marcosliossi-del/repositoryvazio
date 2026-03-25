@@ -1,18 +1,18 @@
 /**
- * Meta Ads Sync — via Windsor.ai
+ * Meta Ads Sync — via Meta Marketing API (direto, sem Windsor)
  *
  * Fluxo completo por conta de plataforma:
  *   1. Cria SyncLog (RUNNING)
- *   2. Busca insights diários via Windsor Connector (facebook)
- *   3. Transforma e faz upsert de MetricSnapshot
+ *   2. Busca insights diários e por campanha em paralelo
+ *   3. Transforma e faz upsert de MetricSnapshot / CampaignSnapshot
  *   4. Atualiza lastSyncAt na PlatformAccount
  *   5. Finaliza SyncLog (SUCCESS ou FAILED)
  *   6. Recalcula HealthScore + dispara alertas
  */
 
 import { prisma } from '@/lib/prisma'
-import { WindsorClient } from '@/services/windsor/client'
-import { transformWindsorMeta, transformWindsorMetaCampaign } from '@/services/windsor/transformers'
+import { MetaAdsClient } from './client'
+import { transformMetaInsight, transformMetaCampaignInsight } from './transformers'
 import { recalculateClientHealth } from '@/services/health-scorer'
 import { dispatchAlertsForClient } from '@/services/alert-dispatcher'
 
@@ -70,52 +70,53 @@ export async function syncMetaAccount(
   const until = options.until ?? formatDate(new Date())
 
   try {
-    const windsor = new WindsorClient()
+    // Token individual da conta tem prioridade; fallback para META_SYSTEM_TOKEN
+    const metaClient = new MetaAdsClient(account.accessToken)
 
-    // Busca insights diários e por campanha em paralelo para reduzir tempo total
+    // Busca insights de conta e campanhas em paralelo
     const [rows, campaignRows] = await Promise.all([
-      windsor.getMetaInsights(account.externalId, since, until),
-      windsor.getMetaCampaignInsights(account.externalId, since, until),
+      metaClient.getInsights(account.externalId, since, until),
+      metaClient.getCampaignInsights(account.externalId, since, until),
     ])
 
     let recordsUpserted = 0
 
     for (const row of rows) {
-      const snapshot = transformWindsorMeta(row)
+      const snapshot = transformMetaInsight(row)
 
       await prisma.metricSnapshot.upsert({
         where: { platformAccountId_date: { platformAccountId, date: snapshot.date } },
         update: {
-          spend: snapshot.spend,
-          impressions: snapshot.impressions,
-          clicks: snapshot.clicks,
-          reach: snapshot.reach,
-          frequency: snapshot.frequency,
-          ctr: snapshot.ctr,
-          cpc: snapshot.cpc,
-          conversions: snapshot.conversions,
+          spend:           snapshot.spend,
+          impressions:     snapshot.impressions,
+          clicks:          snapshot.clicks,
+          reach:           snapshot.reach,
+          frequency:       snapshot.frequency,
+          ctr:             snapshot.ctr,
+          cpc:             snapshot.cpc,
+          conversions:     snapshot.conversions,
           conversionValue: snapshot.conversionValue,
-          roas: snapshot.roas,
-          cpl: snapshot.cpl,
-          rawData: snapshot.rawData as object,
-          syncedAt: new Date(),
+          roas:            snapshot.roas,
+          cpl:             snapshot.cpl,
+          rawData:         snapshot.rawData as object,
+          syncedAt:        new Date(),
         },
         create: {
-          clientId: account.clientId,
+          clientId:        account.clientId,
           platformAccountId,
-          date: snapshot.date,
-          spend: snapshot.spend,
-          impressions: snapshot.impressions,
-          clicks: snapshot.clicks,
-          reach: snapshot.reach,
-          frequency: snapshot.frequency,
-          ctr: snapshot.ctr,
-          cpc: snapshot.cpc,
-          conversions: snapshot.conversions,
+          date:            snapshot.date,
+          spend:           snapshot.spend,
+          impressions:     snapshot.impressions,
+          clicks:          snapshot.clicks,
+          reach:           snapshot.reach,
+          frequency:       snapshot.frequency,
+          ctr:             snapshot.ctr,
+          cpc:             snapshot.cpc,
+          conversions:     snapshot.conversions,
           conversionValue: snapshot.conversionValue,
-          roas: snapshot.roas,
-          cpl: snapshot.cpl,
-          rawData: snapshot.rawData as object,
+          roas:            snapshot.roas,
+          cpl:             snapshot.cpl,
+          rawData:         snapshot.rawData as object,
         },
       })
       recordsUpserted++
@@ -123,51 +124,52 @@ export async function syncMetaAccount(
 
     // ── Campaign-level sync ────────────────────────────────────────────────
     for (const row of campaignRows) {
-      const snap = transformWindsorMetaCampaign(row)
-      const adSetId = snap.adSetId ?? '' // empty string = sem adset (único constraint não aceita NULL)
+      const snap = transformMetaCampaignInsight(row)
+      const adSetId = snap.adSetId ?? ''
+
       await prisma.campaignSnapshot.upsert({
         where: {
           platformAccountId_date_campaignId_adSetId: {
             platformAccountId,
-            date: snap.date,
+            date:       snap.date,
             campaignId: snap.campaignId,
             adSetId,
           },
         },
         update: {
-          campaignName: snap.campaignName,
-          adSetName:    snap.adSetName,
-          spend:        snap.spend,
-          impressions:  snap.impressions,
-          clicks:       snap.clicks,
-          reach:        snap.reach,
-          ctr:          snap.ctr,
-          cpc:          snap.cpc,
-          conversions:  snap.conversions,
+          campaignName:    snap.campaignName,
+          adSetName:       snap.adSetName,
+          spend:           snap.spend,
+          impressions:     snap.impressions,
+          clicks:          snap.clicks,
+          reach:           snap.reach,
+          ctr:             snap.ctr,
+          cpc:             snap.cpc,
+          conversions:     snap.conversions,
           conversionValue: snap.conversionValue,
-          roas: snap.roas,
-          cpl:  snap.cpl,
-          syncedAt: new Date(),
+          roas:            snap.roas,
+          cpl:             snap.cpl,
+          syncedAt:        new Date(),
         },
         create: {
-          clientId: account.clientId,
+          clientId:        account.clientId,
           platformAccountId,
-          platform: 'META_ADS',
-          date:         snap.date,
-          campaignId:   snap.campaignId,
-          campaignName: snap.campaignName,
+          platform:        'META_ADS',
+          date:            snap.date,
+          campaignId:      snap.campaignId,
+          campaignName:    snap.campaignName,
           adSetId,
-          adSetName:    snap.adSetName,
-          spend:        snap.spend,
-          impressions:  snap.impressions,
-          clicks:       snap.clicks,
-          reach:        snap.reach,
-          ctr:          snap.ctr,
-          cpc:          snap.cpc,
-          conversions:  snap.conversions,
+          adSetName:       snap.adSetName,
+          spend:           snap.spend,
+          impressions:     snap.impressions,
+          clicks:          snap.clicks,
+          reach:           snap.reach,
+          ctr:             snap.ctr,
+          cpc:             snap.cpc,
+          conversions:     snap.conversions,
           conversionValue: snap.conversionValue,
-          roas: snap.roas,
-          cpl:  snap.cpl,
+          roas:            snap.roas,
+          cpl:             snap.cpl,
         },
       })
     }
@@ -182,7 +184,7 @@ export async function syncMetaAccount(
       data: { status: 'SUCCESS', completedAt: new Date(), recordsUpserted },
     })
 
-    // Auto-dismiss stale SYNC_FAILED alerts for this account now that sync succeeded
+    // Auto-dismiss stale SYNC_FAILED alerts para esta conta
     await prisma.alert.updateMany({
       where: { clientId: account.clientId, type: 'SYNC_FAILED', read: false },
       data: { read: true },

@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { requireSession } from '@/lib/dal'
-import { WindsorClient } from '@/services/windsor/client'
+import { MetaAdsClient } from '@/services/meta-ads/client'
 
 export interface LinkAccountState {
   error?: string
@@ -14,17 +14,17 @@ export interface LinkAccountState {
 // ── Meta Ads ──────────────────────────────────────────────────────────────────
 
 /**
- * Valida se uma conta Meta está acessível via Windsor.
+ * Valida se uma conta Meta está acessível via Meta Marketing API.
  */
-export async function validateWindsorMetaAccount(
+export async function validateMetaAccount(
   adAccountId: string
 ): Promise<{ valid: boolean; error?: string }> {
   await requireSession()
 
   try {
-    const windsor = new WindsorClient()
     const normalizedId = adAccountId.startsWith('act_') ? adAccountId : `act_${adAccountId}`
-    return await windsor.validateMetaAccount(normalizedId)
+    const client = new MetaAdsClient()
+    return await client.validateAccount(normalizedId)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     return { valid: false, error: msg }

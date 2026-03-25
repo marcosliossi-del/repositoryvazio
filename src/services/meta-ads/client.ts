@@ -1,14 +1,17 @@
 /**
  * Cliente HTTP para a Meta Ads Graph API.
  * Usa fetch nativo (sem SDK) para manter o bundle leve.
+ *
+ * Auth: token individual (PlatformAccount.accessToken)
+ *       ou META_SYSTEM_TOKEN (variável de ambiente) como fallback.
  */
 
-import type { MetaInsightRecord } from './transformers'
+import type { MetaInsightRecord, MetaCampaignInsightRecord } from './transformers'
 
 const GRAPH_API_VERSION = 'v22.0'
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`
 
-const INSIGHT_FIELDS = [
+const ACCOUNT_FIELDS = [
   'spend',
   'impressions',
   'clicks',
@@ -18,15 +21,80 @@ const INSIGHT_FIELDS = [
   'cpc',
   'actions',
   'action_values',
-  'cost_per_action_type',
   'purchase_roas',
 ].join(',')
 
+const CAMPAIGN_FIELDS = [
+  'spend',
+  'impressions',
+  'clicks',
+  'reach',
+  'ctr',
+  'cpc',
+  'actions',
+  'action_values',
+  'campaign_id',
+  'campaign_name',
+  'adset_id',
+  'adset_name',
+].join(',')
+
 export class MetaAdsClient {
-  constructor(private readonly accessToken: string) {}
+  private readonly accessToken: string
 
   /**
-   * Busca insights diários de uma conta de anúncios para um intervalo de datas.
+   * @param accessToken Token da conta. Se omitido, usa META_SYSTEM_TOKEN do ambiente.
+   */
+  constructor(accessToken?: string | null) {
+    const token = accessToken ?? process.env.META_SYSTEM_TOKEN
+    if (!token) {
+      throw new Error(
+        'Token Meta Ads não configurado. Defina META_SYSTEM_TOKEN nas variáveis de ambiente do Vercel.'
+      )
+    }
+    this.accessToken = token
+  }
+
+  /** Fetch com timeout de 25s e paginação automática por cursor. */
+  private async fetchPages<T>(url: string): Promise<T[]> {
+    const results: T[] = []
+    let next: string | null = url
+
+    while (next) {
+      const controller = new AbortController()
+      const tid = setTimeout(() => controller.abort(), 25_000)
+
+      let res: Response
+      try {
+        res = await fetch(next, {
+          signal: controller.signal,
+          next: { revalidate: 0 },
+        })
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') {
+          throw new Error('Meta API timeout — sem resposta em 25s')
+        }
+        throw err
+      } finally {
+        clearTimeout(tid)
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { message?: string } }
+        const msg = body.error?.message ?? JSON.stringify(body).slice(0, 200)
+        throw new Error(`Meta API error ${res.status}: ${msg}`)
+      }
+
+      const json = await res.json() as { data: T[]; paging?: { next?: string } }
+      results.push(...(json.data ?? []))
+      next = json.paging?.next ?? null
+    }
+
+    return results
+  }
+
+  /**
+   * Insights diários a nível de conta de anúncios.
    */
   async getInsights(
     adAccountId: string,
@@ -38,22 +106,55 @@ export class MetaAdsClient {
       level: 'account',
       time_increment: '1',
       time_range: JSON.stringify({ since, until }),
-      fields: INSIGHT_FIELDS,
+      fields: ACCOUNT_FIELDS,
       limit: '31',
     })
+    return this.fetchPages<MetaInsightRecord>(`${GRAPH_BASE}/${adAccountId}/insights?${params}`)
+  }
 
-    const url = `${GRAPH_BASE}/${adAccountId}/insights?${params}`
-    const res = await fetch(url, { next: { revalidate: 0 } })
+  /**
+   * Insights diários a nível de campanha + conjunto de anúncios.
+   */
+  async getCampaignInsights(
+    adAccountId: string,
+    since: string,
+    until: string
+  ): Promise<MetaCampaignInsightRecord[]> {
+    const params = new URLSearchParams({
+      access_token: this.accessToken,
+      level: 'adset',
+      time_increment: '1',
+      time_range: JSON.stringify({ since, until }),
+      fields: CAMPAIGN_FIELDS,
+      limit: '100',
+    })
+    return this.fetchPages<MetaCampaignInsightRecord>(`${GRAPH_BASE}/${adAccountId}/insights?${params}`)
+  }
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(
-        `Meta API error ${res.status}: ${err?.error?.message ?? res.statusText}`
-      )
+  /**
+   * Valida se a conta está acessível com o token atual.
+   */
+  async validateAccount(adAccountId: string): Promise<{ valid: boolean; error?: string }> {
+    try {
+      const d = new Date()
+      d.setDate(d.getDate() - 1)
+      const yesterday = d.toISOString().split('T')[0]
+      const params = new URLSearchParams({
+        access_token: this.accessToken,
+        level: 'account',
+        time_increment: '1',
+        time_range: JSON.stringify({ since: yesterday, until: yesterday }),
+        fields: 'spend',
+        limit: '1',
+      })
+      await this.fetchPages(`${GRAPH_BASE}/${adAccountId}/insights?${params}`)
+      return { valid: true }
+    } catch (err) {
+      return {
+        valid: false,
+        error: err instanceof Error ? err.message : String(err),
+      }
     }
-
-    const json = await res.json()
-    return (json.data ?? []) as MetaInsightRecord[]
   }
 
   /**
@@ -64,7 +165,6 @@ export class MetaAdsClient {
     const appSecret = process.env.META_APP_SECRET
 
     if (!appId || !appSecret) {
-      // Sem credenciais de app configuradas — assume válido
       return { valid: true }
     }
 

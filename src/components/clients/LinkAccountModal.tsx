@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { Plus, Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
-import { linkMetaAccount, validateWindsorMetaAccount } from '@/app/actions/platformAccounts'
+import { linkMetaAccount, validateMetaAccount } from '@/app/actions/platformAccounts'
 import { useRouter } from 'next/navigation'
 
 interface LinkAccountModalProps {
@@ -45,10 +45,10 @@ export function LinkAccountModal({ clientId, clientSlug: _ }: LinkAccountModalPr
     setStep('verifying')
 
     startTransition(async () => {
-      // Valida acesso via Windsor antes de salvar
-      const validation = await validateWindsorMetaAccount(trimmedId)
+      // Valida acesso via Meta API antes de salvar
+      const validation = await validateMetaAccount(trimmedId)
       if (!validation.valid) {
-        setError(validation.error ?? 'Conta não acessível via Windsor.')
+        setError(validation.error ?? 'Conta não acessível. Verifique o ID e o META_SYSTEM_TOKEN.')
         setStep('form')
         return
       }
@@ -72,7 +72,7 @@ export function LinkAccountModal({ clientId, clientSlug: _ }: LinkAccountModalPr
 
   const stepLabel = {
     form: 'Informe o ID da conta de anúncios',
-    verifying: 'Verificando acesso via Windsor...',
+    verifying: 'Verificando acesso via Meta API...',
     done: 'Conta vinculada com sucesso!',
   }
 
@@ -120,7 +120,7 @@ export function LinkAccountModal({ clientId, clientSlug: _ }: LinkAccountModalPr
                     />
                     <p className="text-[10px] text-[#87919E] mt-1">
                       Encontre em Meta Business → Configurações → Contas de Anúncios.
-                      A conta deve estar conectada no Windsor.
+                      A conta deve estar acessível com o token Meta configurado.
                     </p>
                   </div>
 
