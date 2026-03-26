@@ -1643,3 +1643,163 @@ export const getClientCampaigns = cache(async (
     }))
     .sort((a, b) => b.spend - a.spend)
 })
+
+// ─── Agency Overview ──────────────────────────────────────────────────────────
+
+export type AgencyManagerRow = {
+  id: string
+  name: string
+  clientCount: number
+  revenue: number
+  spend: number
+  roas: number | null
+  otimo: number
+  regular: number
+  ruim: number
+}
+
+export type AgencyClientRow = {
+  id: string
+  name: string
+  slug: string
+  revenue: number
+  spend: number
+  roas: number | null
+  status: HealthStatus | null
+  manager: string | null
+}
+
+export type AgencyOverview = {
+  totalRevenue: number
+  totalSpend: number
+  weightedRoas: number | null
+  totalPurchases: number
+  activeClients: number
+  health: { otimo: number; regular: number; ruim: number; unknown: number }
+  byManager: AgencyManagerRow[]
+  topClients: AgencyClientRow[]
+  atRiskClients: AgencyClientRow[]
+}
+
+export const getAgencyOverview = cache(async (): Promise<AgencyOverview> => {
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const { start: weekStart } = getWeekRange()
+
+  // All active clients with assignments and health scores
+  const clients = await prisma.client.findMany({
+    where: { status: 'ACTIVE' },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      assignments: {
+        where: { isPrimary: true },
+        select: { user: { select: { id: true, name: true } } },
+        take: 1,
+      },
+      healthScores: {
+        where: { periodStart: { gte: weekStart } },
+        select: { status: true },
+      },
+    },
+  })
+
+  const clientIds = clients.map((c) => c.id)
+
+  // All MTD snapshots in one query
+  const snaps = await prisma.metricSnapshot.findMany({
+    where: { clientId: { in: clientIds }, date: { gte: monthStart } },
+    select: {
+      clientId: true,
+      spend: true,
+      conversions: true,
+      conversionValue: true,
+      platformAccount: { select: { platform: true } },
+    },
+  })
+
+  // Aggregate per client
+  const kpiMap = new Map<string, { revenue: number; spend: number; purchases: number }>()
+  for (const s of snaps) {
+    if (!kpiMap.has(s.clientId)) kpiMap.set(s.clientId, { revenue: 0, spend: 0, purchases: 0 })
+    const k = kpiMap.get(s.clientId)!
+    if (s.platformAccount.platform === 'GA4') {
+      k.revenue   += Number(s.conversionValue ?? 0)
+      k.purchases += s.conversions ?? 0
+    } else {
+      k.spend += Number(s.spend ?? 0)
+    }
+  }
+
+  // Build per-client rows + totals
+  let totalRevenue = 0
+  let totalSpend = 0
+  let totalPurchases = 0
+  const health = { otimo: 0, regular: 0, ruim: 0, unknown: 0 }
+  const managerMap = new Map<string, AgencyManagerRow>()
+  const clientRows: AgencyClientRow[] = []
+
+  for (const c of clients) {
+    const k = kpiMap.get(c.id) ?? { revenue: 0, spend: 0, purchases: 0 }
+    totalRevenue   += k.revenue
+    totalSpend     += k.spend
+    totalPurchases += k.purchases
+
+    const status: HealthStatus | null =
+      c.healthScores.length === 0 ? null
+        : c.healthScores.some((s) => s.status === 'RUIM') ? 'RUIM'
+        : c.healthScores.some((s) => s.status === 'REGULAR') ? 'REGULAR'
+        : 'OTIMO'
+
+    if (status === 'OTIMO') health.otimo++
+    else if (status === 'REGULAR') health.regular++
+    else if (status === 'RUIM') health.ruim++
+    else health.unknown++
+
+    const manager = c.assignments[0]?.user ?? null
+    const roas = k.spend > 0 && k.revenue > 0 ? Math.round((k.revenue / k.spend) * 100) / 100 : null
+
+    clientRows.push({ id: c.id, name: c.name, slug: c.slug, revenue: k.revenue, spend: k.spend, roas, status, manager: manager?.name ?? null })
+
+    if (manager) {
+      if (!managerMap.has(manager.id)) {
+        managerMap.set(manager.id, { id: manager.id, name: manager.name, clientCount: 0, revenue: 0, spend: 0, roas: null, otimo: 0, regular: 0, ruim: 0 })
+      }
+      const m = managerMap.get(manager.id)!
+      m.clientCount++
+      m.revenue += k.revenue
+      m.spend   += k.spend
+      if (status === 'OTIMO') m.otimo++
+      else if (status === 'REGULAR') m.regular++
+      else if (status === 'RUIM') m.ruim++
+    }
+  }
+
+  // Compute ROAS per manager
+  const byManager: AgencyManagerRow[] = [...managerMap.values()].map((m) => ({
+    ...m,
+    roas: m.spend > 0 && m.revenue > 0 ? Math.round((m.revenue / m.spend) * 100) / 100 : null,
+  })).sort((a, b) => b.revenue - a.revenue)
+
+  const topClients = [...clientRows]
+    .filter((c) => c.roas !== null)
+    .sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0))
+    .slice(0, 5)
+
+  const atRiskClients = clientRows
+    .filter((c) => c.status === 'RUIM')
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  return {
+    totalRevenue,
+    totalSpend,
+    weightedRoas: totalSpend > 0 && totalRevenue > 0 ? Math.round((totalRevenue / totalSpend) * 100) / 100 : null,
+    totalPurchases,
+    activeClients: clients.length,
+    health,
+    byManager,
+    topClients,
+    atRiskClients,
+  }
+})

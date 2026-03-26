@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronRight,
   Activity,
+  Building2,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -49,6 +50,7 @@ const navigation = [
   {
     label: 'AGÊNCIA',
     items: [
+      { name: 'Visão Geral', href: '/agency', icon: Building2 },
       { name: 'Gestores', href: '/managers', icon: PieChart },
       { name: 'Equipe', href: '/team', icon: Users },
     ],
