@@ -29,6 +29,7 @@ import { CampaignInsightCard } from '@/components/clients/CampaignInsightCard'
 import { RevenuePaceChart } from '@/components/clients/RevenuePaceChart'
 import { MonthlyComparisonChart } from '@/components/clients/MonthlyComparisonChart'
 import { InteractionTimeline } from '@/components/clients/InteractionTimeline'
+import { EditClientButton } from '@/components/clients/ClientHeader'
 
 const platformColors: Record<string, string> = {
   META_ADS: '#1877F2',
@@ -94,8 +95,7 @@ export default async function ClientDetailPage({
 }) {
   const { slug } = await params
   const { from, to } = await searchParams
-  const session = await requireSession()
-  const client = await getClientDetail(slug)
+  const [session, client] = await Promise.all([requireSession(), getClientDetail(slug)])
   if (!client) notFound()
 
   // Default: 1st of current month → yesterday
@@ -163,6 +163,20 @@ export default async function ClientDetailPage({
           </div>
         </div>
         <div className="flex gap-2">
+          <EditClientButton
+            client={{
+              id: client.id,
+              name: client.name,
+              industry: client.industry,
+              website: client.website,
+              notes: client.notes,
+              email: client.email ?? null,
+              phone: client.phone ?? null,
+              document: client.document ?? null,
+              contractValue: client.contractValue != null ? Number(client.contractValue) : null,
+              contractStart: client.contractStart ?? null,
+            }}
+          />
           <SyncButton clientId={client.id} />
           <GoalFormModal clientId={client.id} />
         </div>

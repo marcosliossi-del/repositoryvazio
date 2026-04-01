@@ -1,3 +1,5 @@
+export const revalidate = 30
+
 import Link from 'next/link'
 import { requireSession, getClientsList } from '@/lib/dal'
 import { Badge } from '@/components/ui/badge'

@@ -1,3 +1,5 @@
+export const revalidate = 30
+
 import { requireSession } from '@/lib/dal'
 import { getDashboardData, getClientsOperationalTable, getManagerStats, getWeeklyChecklist } from '@/lib/dal'
 import { HealthSummaryCards } from '@/components/dashboard/HealthSummaryCards'
@@ -32,6 +34,7 @@ const alertIcons = {
 
 export default async function DashboardPage() {
   const session = await requireSession()
+  // Run all data fetches in parallel
   const [{ clients, totals, alerts, oscillationAlerts, lastSyncAt }, operationalRows, managerStats, checklist] =
     await Promise.all([
       getDashboardData(session.userId, session.role),
