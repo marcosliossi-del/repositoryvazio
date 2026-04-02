@@ -32,6 +32,7 @@ import { RevenuePaceChart } from '@/components/clients/RevenuePaceChart'
 import { MonthlyComparisonChart } from '@/components/clients/MonthlyComparisonChart'
 import { InteractionTimeline } from '@/components/clients/InteractionTimeline'
 import { EditClientButton } from '@/components/clients/ClientHeader'
+import { RemovePlatformButton } from '@/components/clients/RemovePlatformButton'
 
 const platformColors: Record<string, string> = {
   META_ADS: '#1877F2',
@@ -221,7 +222,7 @@ export default async function ClientDetailPage({
               <p className="text-sm text-[#87919E]">Nenhuma conta vinculada</p>
             ) : (
               client.platformAccounts.map((acc) => (
-                <div key={acc.id} className="flex items-center justify-between gap-2">
+                <div key={acc.id} className="flex items-center justify-between gap-2 group">
                   <div className="flex items-center gap-2 min-w-0">
                     <span
                       className="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center text-white flex-shrink-0"
@@ -234,9 +235,16 @@ export default async function ClientDetailPage({
                       <p className="text-[10px] text-[#87919E] font-mono truncate">{acc.externalId}</p>
                     </div>
                   </div>
-                  {acc.platform === 'META_ADS'   && <MetaSyncButton platformAccountId={acc.id} />}
-                  {acc.platform === 'GA4'        && <GA4SyncButton platformAccountId={acc.id} />}
-                  {acc.platform === 'GOOGLE_ADS' && <GoogleAdsSyncButton platformAccountId={acc.id} clientId={client.id} />}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {acc.platform === 'META_ADS'   && <MetaSyncButton platformAccountId={acc.id} />}
+                    {acc.platform === 'GA4'        && <GA4SyncButton platformAccountId={acc.id} />}
+                    {acc.platform === 'GOOGLE_ADS' && <GoogleAdsSyncButton platformAccountId={acc.id} clientId={client.id} />}
+                    <RemovePlatformButton
+                      platformAccountId={acc.id}
+                      platformName={platformNames[acc.platform] ?? acc.platform}
+                      accountName={acc.name ?? acc.externalId}
+                    />
+                  </div>
                 </div>
               ))
             )}
