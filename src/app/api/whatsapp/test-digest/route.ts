@@ -12,6 +12,12 @@ export async function POST() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const debug = {
+    ZAPI_INSTANCE_ID: !!process.env.ZAPI_INSTANCE_ID,
+    ZAPI_TOKEN: !!process.env.ZAPI_TOKEN,
+    WHATSAPP_GROUP_ID: !!process.env.WHATSAPP_GROUP_ID,
+    WHATSAPP_NOTIFY_NUMBERS: !!process.env.WHATSAPP_NOTIFY_NUMBERS,
+  }
   const result = await sendDailyDigest()
-  return NextResponse.json(result)
+  return NextResponse.json({ ...result, debug })
 }
