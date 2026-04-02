@@ -1692,6 +1692,9 @@ export type AgencyOverview = {
   churnedClients: number
   churnedThisMonth: number
   churnRate: number | null // churned / (active + churned)
+  // Tenure
+  avgTenureMonths: number | null  // average months active clients have been with the agency
+  clientsWithTenure: number       // how many have contractStart filled in
 }
 
 export const getAgencyOverview = cache(async (): Promise<AgencyOverview> => {
@@ -1713,6 +1716,7 @@ export const getAgencyOverview = cache(async (): Promise<AgencyOverview> => {
       name: true,
       slug: true,
       contractValue: true,
+      contractStart: true,
       assignments: {
         where: { isPrimary: true },
         select: { user: { select: { id: true, name: true } } },
@@ -1815,6 +1819,18 @@ export const getAgencyOverview = cache(async (): Promise<AgencyOverview> => {
   const totalLTV = clients.reduce((sum, c) => sum + (c.contractValue ? Number(c.contractValue) : 0), 0)
   const clientsWithLTV = clients.filter((c) => c.contractValue && Number(c.contractValue) > 0).length
 
+  // Tenure: average months since contractStart for active clients
+  const tenureClients = clients.filter((c) => c.contractStart)
+  const avgTenureMonths = tenureClients.length > 0
+    ? Math.round(
+        tenureClients.reduce((sum, c) => {
+          const months = (now.getFullYear() - c.contractStart!.getFullYear()) * 12
+            + (now.getMonth() - c.contractStart!.getMonth())
+          return sum + Math.max(0, months)
+        }, 0) / tenureClients.length
+      )
+    : null
+
   const totalAll = clients.length + churnedTotal
 
   return {
@@ -1832,6 +1848,8 @@ export const getAgencyOverview = cache(async (): Promise<AgencyOverview> => {
     churnedClients: churnedTotal,
     churnedThisMonth,
     churnRate: totalAll > 0 ? Math.round((churnedTotal / totalAll) * 1000) / 10 : null,
+    avgTenureMonths,
+    clientsWithTenure: tenureClients.length,
   }
 })
 

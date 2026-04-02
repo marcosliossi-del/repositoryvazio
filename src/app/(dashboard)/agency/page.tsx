@@ -4,7 +4,7 @@ import { requireSession, getAgencyOverview } from '@/lib/dal'
 import { formatCurrency, formatNumber } from '@/lib/utils'
 import { healthLabels, healthBgClasses } from '@/lib/health'
 import { HealthStatus } from '@prisma/client'
-import { TrendingUp, TrendingDown, Minus, Users, DollarSign, BarChart2, ShoppingCart, Heart, UserMinus } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Users, DollarSign, BarChart2, ShoppingCart, Heart, UserMinus, Clock } from 'lucide-react'
 
 function HealthDot({ status }: { status: HealthStatus | null }) {
   if (!status) return <span className="w-2 h-2 rounded-full bg-[#38435C] inline-block" />
@@ -229,7 +229,7 @@ export default async function AgencyPage() {
         </div>
       )}
 
-      {/* LTV & Churn Rate */}
+      {/* LTV, Churn Rate & Tenure */}
       <div className="grid grid-cols-2 gap-4">
         {/* LTV */}
         <div className="bg-[#0A1E2C] border border-[#38435C] rounded-xl p-5">
@@ -279,6 +279,35 @@ export default async function AgencyPage() {
               </p>
               <p className="text-[10px] text-[#87919E] mt-1">saídas no mês atual</p>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tenure */}
+      <div className="bg-[#0A1E2C] border border-[#38435C] rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Clock size={16} className="text-[#EAB308]" />
+          <h2 className="text-sm font-semibold text-[#EBEBEB]">Permanência Média</h2>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-[#87919E] mb-1">Tempo médio na agência</p>
+            <p className="text-2xl font-bold text-[#EBEBEB]">
+              {data.avgTenureMonths !== null
+                ? data.avgTenureMonths >= 12
+                  ? `${Math.floor(data.avgTenureMonths / 12)}a ${data.avgTenureMonths % 12}m`
+                  : `${data.avgTenureMonths} meses`
+                : '—'}
+            </p>
+            <p className="text-[10px] text-[#87919E] mt-1">clientes ativos com data de início</p>
+          </div>
+          <div>
+            <p className="text-xs text-[#87919E] mb-1">Clientes com data cadastrada</p>
+            <p className="text-2xl font-bold text-[#EBEBEB]">
+              {data.clientsWithTenure}
+              <span className="text-sm text-[#87919E] font-normal"> / {data.activeClients}</span>
+            </p>
+            <p className="text-[10px] text-[#87919E] mt-1">cadastre a data de início nos clientes</p>
           </div>
         </div>
       </div>
