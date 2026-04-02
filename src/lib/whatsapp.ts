@@ -90,8 +90,12 @@ export async function listGroups(): Promise<{ id: string; name: string }[]> {
       headers: baseHeaders(),
     })
     if (!res.ok) return []
-    const json = await res.json() as Array<{ id?: string; name?: string; subject?: string }>
-    return json.map((g) => ({ id: g.id ?? '', name: g.name ?? g.subject ?? g.id ?? '' }))
+    const json = await res.json() as Array<Record<string, unknown>>
+    return json.map((g) => ({
+      // Z-API pode retornar o ID em diferentes campos dependendo da versão
+      id:   String(g.phone ?? g.chatId ?? g.groupId ?? g.id ?? ''),
+      name: String(g.name ?? g.subject ?? g.title ?? g.phone ?? g.id ?? ''),
+    })).filter((g) => g.id)
   } catch {
     return []
   }
