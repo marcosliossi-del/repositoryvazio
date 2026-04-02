@@ -1,4 +1,4 @@
-export const revalidate = 30
+export const revalidate = 120
 
 import { requireSession } from '@/lib/dal'
 import { getDashboardData, getClientsOperationalTable, getManagerStats, getWeeklyChecklist } from '@/lib/dal'
@@ -20,6 +20,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { timeAgo } from '@/lib/utils'
+import { RecalcHealthButton } from '@/components/dashboard/RecalcHealthButton'
 
 const alertIcons = {
   STATUS_DROPPED_TO_RUIM: { icon: AlertTriangle, color: 'text-[#EF4444]' },
@@ -66,6 +67,7 @@ export default async function DashboardPage() {
             <RefreshCw size={12} />
             <span>Semana atual</span>
           </div>
+          {session.role === 'ADMIN' && <RecalcHealthButton />}
         </div>
       </div>
 
