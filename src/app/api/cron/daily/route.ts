@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { syncAllMetaAccounts } from '@/services/meta-ads/sync'
 import { syncAllGA4Accounts } from '@/services/ga4/sync'
 import { syncAllGoogleAdsAccounts } from '@/services/google-ads/sync'
+import { syncAllNuvemshopAccounts } from '@/services/nuvemshop/sync'
 import { recalculateAllClientsHealth } from '@/services/health-scorer'
 import { detectOscillationsForAll } from '@/services/oscillation-detector'
 import { scoreAllClientsChurnRisk } from '@/services/churn-scorer'
@@ -19,6 +20,8 @@ import { sendDailyDigest } from '@/services/notifications/daily-digest'
  * Steps (each runs independently — one failing won't stop the others):
  *   1. Sync all Meta Ads accounts
  *   2. Sync all GA4 accounts
+ *   2b. Sync all Google Ads accounts
+ *   2c. Sync all Nuvemshop accounts
  *   3. Recalculate health scores for all active clients
  *   4. Run oscillation detection for all active clients
  *   5. Score churn risk for all active clients
@@ -36,7 +39,7 @@ export async function POST(request: NextRequest) {
   const isMonday = new Date().getDay() === 1
 
   const summary: Record<string, unknown> = {
-    synced: { meta: { ok: false }, ga4: { ok: false }, googleAds: { ok: false } },
+    synced: { meta: { ok: false }, ga4: { ok: false }, googleAds: { ok: false }, nuvemshop: { ok: false } },
     healthScores: { ok: false },
     alerts: { ok: false },
     churnRisk: { ok: false },
@@ -72,6 +75,16 @@ export async function POST(request: NextRequest) {
     ;(summary.synced as Record<string, unknown>).googleAds = { ok: true, accounts: gadsResults.length }
   } catch (err) {
     ;(summary.synced as Record<string, unknown>).googleAds = {
+      ok: false, error: err instanceof Error ? err.message : String(err),
+    }
+  }
+
+  // ── Step 2c: Sync Nuvemshop ─────────────────────────────────────────────
+  try {
+    const nuvemshopResults = await syncAllNuvemshopAccounts()
+    ;(summary.synced as Record<string, unknown>).nuvemshop = { ok: true, accounts: nuvemshopResults.length }
+  } catch (err) {
+    ;(summary.synced as Record<string, unknown>).nuvemshop = {
       ok: false, error: err instanceof Error ? err.message : String(err),
     }
   }

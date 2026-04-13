@@ -130,6 +130,7 @@ enum Platform {
   GOOGLE_ADS
   TIKTOK_ADS
   GA4
+  NUVEMSHOP
 }
 
 model PlatformAccount {
@@ -150,6 +151,7 @@ model PlatformAccount {
   metricSnapshots    MetricSnapshot[]
   campaignSnapshots  CampaignSnapshot[]
   syncLogs           SyncLog[]
+  nuvemshopStore     NuvemshopStore?
 
   @@unique([clientId, platform, externalId])
 }
@@ -515,4 +517,96 @@ model SyncLog {
   errorMessage      String?
 
   platformAccount PlatformAccount @relation(fields: [platformAccountId], references: [id], onDelete: Cascade)
+}
+
+// ─── NUVEMSHOP ──────────────────────────────────────────────────────────────
+
+model NuvemshopStore {
+  id              String   @id @default(cuid())
+  platformAccountId String @unique
+  storeId         String   @unique  // Nuvemshop store ID
+  storeName       String?
+  storeUrl        String?
+  accessToken     String             // OAuth access token (não expira na Nuvemshop)
+  scopes          String?            // scopes autorizados
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  platformAccount PlatformAccount @relation(fields: [platformAccountId], references: [id], onDelete: Cascade)
+  orders          NuvemshopOrder[]
+}
+
+enum NuvemshopOrderStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
+enum NuvemshopPaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  VOIDED
+  REFUNDED
+  ABANDONED
+}
+
+enum NuvemshopFulfillmentStatus {
+  UNPACKED
+  FULFILLED
+  UNFULFILLED
+  PARTIALLY_FULFILLED
+}
+
+model NuvemshopOrder {
+  id                  String                    @id @default(cuid())
+  storeId             String
+  nuvemshopOrderId    String                    // ID do pedido na Nuvemshop
+  orderNumber         Int?                      // Número do pedido visível ao lojista
+  status              NuvemshopOrderStatus      @default(OPEN)
+  paymentStatus       NuvemshopPaymentStatus    @default(PENDING)
+  fulfillmentStatus   NuvemshopFulfillmentStatus @default(UNPACKED)
+
+  currency            String   @default("BRL")
+  subtotal            Decimal  @db.Decimal(12, 2) // valor dos produtos
+  discount            Decimal  @default(0) @db.Decimal(12, 2)
+  shippingCost        Decimal  @default(0) @db.Decimal(12, 2)
+  total               Decimal  @db.Decimal(12, 2) // valor final cobrado
+
+  productsCount       Int      @default(0)        // quantidade de itens
+  couponCodes         String[] // cupons aplicados
+
+  customerEmail       String?
+  customerName        String?
+
+  // UTM params capturados para cruzamento com GA4
+  utmSource           String?
+  utmMedium           String?
+  utmCampaign         String?
+  utmContent          String?
+  utmTerm             String?
+  landingUrl          String?  // URL de entrada do visitante
+  referralUrl         String?  // URL de referência (de onde veio)
+  storefront          String?  // canal de venda (web, mobile, etc.)
+
+  // Rastreamento GA4
+  ga4TransactionId    String?  // transaction_id do GA4 para cruzamento
+  ga4Matched          Boolean  @default(false) // se foi cruzado com sucesso
+
+  closedAt            DateTime?
+  cancelledAt         DateTime?
+  paidAt              DateTime?
+  orderCreatedAt      DateTime  // data original do pedido na Nuvemshop
+
+  rawData             Json?     // resposta completa da API
+  syncedAt            DateTime  @default(now())
+  createdAt           DateTime  @default(now())
+
+  store NuvemshopStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, nuvemshopOrderId])
+  @@index([storeId, orderCreatedAt])
+  @@index([storeId, paymentStatus])
+  @@index([ga4TransactionId])
+  @@index([orderCreatedAt])
 }
