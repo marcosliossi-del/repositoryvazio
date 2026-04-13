@@ -173,10 +173,10 @@ export async function generateWeeklyReportForClient(
 
   const periodoStr = `${lastWeekStart.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} a ${lastWeekEnd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`
 
-  const prompt = `Você é o assistente de tráfego pago e performance da Performli, especializado em e-commerces.
+  const prompt = `Você é o assistente de tráfego pago e performance da Arkza, especializado em e-commerces.
 Gere um relatório semanal curto, direto e consultivo para ser enviado via WhatsApp ao cliente. Sem markdown, use apenas emojis como marcadores, frases curtas e linha em branco entre blocos.
 
-DADOS DO CLIENTE:
+🗓️ DADOS DO CLIENTE:
 - Nome: ${client.name}
 - Período: ${periodoStr}
 - ROAS meta: ${roasMetaStr}
@@ -191,24 +191,26 @@ DADOS DO CLIENTE:
 - Faturamento acumulado no mês: ${month.revenue > 0 ? formatCurrency(month.revenue) : 'sem dados'} (${daysElapsed} de ${daysInMonth} dias)
 - Projeção para fechar o mês: ${projecaoMes !== null ? formatCurrency(projecaoMes) : 'insuficiente'}
 - Resultado vs meta ROAS: ${roasAboveMeta === true ? 'ACIMA DA META' : roasAboveMeta === false ? 'ABAIXO DA META' : 'meta não definida'}
-- Contexto sazonal: não informado (ignore se não houver)
+- Contexto sazonal: não informado
 
-ESTRUTURA OBRIGATÓRIA DO RELATÓRIO (siga exatamente):
+TOP PRODUTOS DA SEMANA (dados reais do GA4):
+${topProductsStr}
 
-📊 RELATÓRIO SEMANAL — ${client.name.toUpperCase()} 📅 ${periodoStr}
+📊 ESTRUTURA OBRIGATÓRIA DO RELATÓRIO (siga exatamente):
+
+📊 RELATÓRIO SEMANAL — ${client.name.toUpperCase()}
+📅 ${periodoStr}
 
 [1 frase de abertura com tom calibrado:
-→ Se ROAS acima da meta ou faturamento cresceu: tom celebratório
-→ Se resultado abaixo da meta ou queda: tom estratégico e tranquilizador
-→ Nunca mencione "abaixo da meta" de forma alarmista]
+→ Resultado acima da meta: celebratório
+→ Resultado abaixo da meta ou queda: estratégico e tranquilizador
+→ Se houver sazonalidade ativa ou recente: mencione em 1 frase que oscilação é natural e já esperada]
 
 📈 Resultados da semana
 [Máximo 5 linhas. Traga: faturamento com variação, compras com variação, sessões com variação e ROAS realizado vs meta. Seja direto — número, emoji e 1 adjetivo/contexto curto por linha. Sem explicações longas.]
 
 👗 O que mais vendeu
-TOP PRODUTOS DA SEMANA (dados reais do GA4):
-${topProductsStr}
-[Baseie-se nos dados acima. Destaque o produto/categoria líder em receita. Se houver uma categoria dominante, mencione. Máximo 4 linhas no relatório final, sem repetir os números — resuma de forma consultiva e natural.]
+[Máximo 4 linhas. Liste os produtos ou categorias que lideraram em receita com base nos dados do GA4 acima. Se uma coleção ou categoria dominar claramente, destaque em 1 frase. Nada além disso.]
 
 🚀 Próximos passos
 [3 ações curtas, em primeira pessoa do plural. 1 linha cada.]
@@ -219,7 +221,23 @@ Ativaremos [ação #3]
 ${lw.taxaConversao !== null && lw.taxaConversao < 1 ? `⚠️ INCLUA este bloco pois a taxa de conversão está abaixo de 1%:
 
 🔍 Atenção na jornada
-[Máximo 4 linhas. Identifique a trava (taxa de conversão baixa), 1 possível motivo e 1 sugestão prática. Tom consultivo e parceiro, nunca alarmista.]` : `NÃO inclua o bloco "Atenção na jornada" pois a taxa de conversão está adequada (≥1%).`}
+[Máximo 4 linhas. Identifique a trava, 1 possível motivo e 1 sugestão prática pro cliente. Tom consultivo e parceiro, nunca alarmista.]` : `NÃO inclua o bloco "Atenção na jornada" pois a taxa de conversão está adequada (≥1%).`}
+
+💜 A Arkza tá com você.
+[1 frase curta de fechamento — diferente a cada relatório.]
+
+⚙️ REGRAS:
+- Máximo de 3 blocos fixos + 1 condicional
+- Cada bloco: no máximo 5 linhas
+- Frases curtas, sem termos técnicos
+- Nunca culpe o tráfego
+- Primeira pessoa do plural nos próximos passos
+- Tom emocional calibrado pelo resultado
+- Sazonalidade sempre contextualizada em 1 frase, nunca em parágrafo
+- Sem markdown (sem *, #, -)
+- Use apenas emojis como marcadores visuais
+- Linha em branco entre cada bloco
+- Gere apenas o texto do relatório, pronto para copiar e enviar no WhatsApp`
 
 REGRAS:
 - Sem markdown (sem *, #, -, **)
