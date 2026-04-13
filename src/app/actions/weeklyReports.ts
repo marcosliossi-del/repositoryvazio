@@ -18,14 +18,24 @@ export async function generateClientReport(
 ): Promise<ReportState> {
   await requireSession()
 
-  const clientId = formData.get('clientId') as string
+  const clientId   = formData.get('clientId')   as string
   const clientSlug = formData.get('clientSlug') as string
+  const fromStr    = formData.get('from')        as string | null
+  const toStr      = formData.get('to')          as string | null
 
   if (!clientId) return { error: 'Cliente não informado.' }
 
-  const content = await generateWeeklyReportForClient(clientId)
-  if (!content) return { error: 'Erro ao gerar relatório. Verifique se há dados sincronizados.' }
-
-  revalidatePath(`/clients/${clientSlug}`)
-  return { success: true, content }
+  try {
+    const content = await generateWeeklyReportForClient(
+      clientId,
+      fromStr || undefined,
+      toStr   || undefined,
+    )
+    if (!content) return { error: 'Relatório vazio — cliente não encontrado.' }
+    revalidatePath(`/clients/${clientSlug}`)
+    return { success: true, content }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { error: msg }
+  }
 }

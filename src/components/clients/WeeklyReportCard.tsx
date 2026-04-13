@@ -1,8 +1,20 @@
 'use client'
 
 import { useActionState, useState } from 'react'
-import { FileText, Copy, Check, Loader2, RefreshCw } from 'lucide-react'
+import { FileText, Copy, Check, Loader2, RefreshCw, Calendar } from 'lucide-react'
 import { generateClientReport } from '@/app/actions/weeklyReports'
+
+function getDefaultRange() {
+  const today = new Date()
+  const dow = today.getDay()
+  const daysToLastSat = dow === 6 ? 7 : dow + 1
+  const lastSat = new Date(today)
+  lastSat.setDate(today.getDate() - daysToLastSat)
+  const lastSun = new Date(lastSat)
+  lastSun.setDate(lastSat.getDate() - 6)
+  const fmt = (d: Date) => d.toISOString().split('T')[0]
+  return { from: fmt(lastSun), to: fmt(lastSat) }
+}
 
 type Props = {
   clientId: string
@@ -12,6 +24,9 @@ type Props = {
 
 export function WeeklyReportCard({ clientId, clientSlug, existingReport }: Props) {
   const [copied, setCopied] = useState(false)
+  const defaults = getDefaultRange()
+  const [from, setFrom] = useState(defaults.from)
+  const [to, setTo]     = useState(defaults.to)
   const [state, action, pending] = useActionState(generateClientReport, {
     content: existingReport?.content,
   })
@@ -53,19 +68,33 @@ export function WeeklyReportCard({ clientId, clientSlug, existingReport }: Props
               {copied ? 'Copiado!' : 'Copiar'}
             </button>
           )}
-          <form action={action}>
+          <form action={action} className="flex items-center gap-2 flex-wrap justify-end">
             <input type="hidden" name="clientId" value={clientId} />
             <input type="hidden" name="clientSlug" value={clientSlug} />
+            <div className="flex items-center gap-1.5 bg-[#1B2B3A] border border-[#38435C] rounded-lg px-2 h-8">
+              <Calendar size={11} className="text-[#87919E]" />
+              <input
+                type="date"
+                name="from"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+                className="bg-transparent text-xs text-[#EBEBEB] focus:outline-none w-28"
+              />
+              <span className="text-[#87919E] text-xs">→</span>
+              <input
+                type="date"
+                name="to"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                className="bg-transparent text-xs text-[#EBEBEB] focus:outline-none w-28"
+              />
+            </div>
             <button
               type="submit"
               disabled={pending}
               className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[#95BBE2]/10 text-[#95BBE2] hover:bg-[#95BBE2]/20 text-xs transition-colors border border-[#95BBE2]/20 disabled:opacity-50"
             >
-              {pending ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <RefreshCw size={13} />
-              )}
+              {pending ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
               {reportContent ? 'Regerar' : 'Gerar relatório'}
             </button>
           </form>

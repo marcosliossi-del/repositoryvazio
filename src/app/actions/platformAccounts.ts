@@ -202,3 +202,29 @@ export async function unlinkPlatformAccount(platformAccountId: string): Promise<
   revalidatePath('/clients')
   return {}
 }
+
+/**
+ * Exclui permanentemente uma conta de plataforma e todos os dados associados (cascade).
+ */
+export async function deletePlatformAccount(platformAccountId: string): Promise<{ error?: string; clientSlug?: string }> {
+  const session = await requireSession()
+
+  const account = await prisma.platformAccount.findUnique({
+    where: { id: platformAccountId },
+    select: { clientId: true, client: { select: { slug: true } } },
+  })
+  if (!account) return { error: 'Conta não encontrada.' }
+
+  if (session.role !== 'ADMIN') {
+    const assignment = await prisma.clientAssignment.findFirst({
+      where: { clientId: account.clientId, userId: session.userId },
+    })
+    if (!assignment) return { error: 'Sem permissão.' }
+  }
+
+  await prisma.platformAccount.delete({ where: { id: platformAccountId } })
+
+  revalidatePath(`/clients/${account.client.slug}`)
+  revalidatePath('/clients')
+  return { clientSlug: account.client.slug }
+}

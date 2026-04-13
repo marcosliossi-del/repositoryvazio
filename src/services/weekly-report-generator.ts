@@ -15,22 +15,34 @@ import { getWeekRange, getMonthRange, formatCurrency } from '@/lib/utils'
 const anthropic = new Anthropic()
 
 function getLastWeekRange(): { start: Date; end: Date } {
-  const { start } = getWeekRange()
-  const end = new Date(start)
-  end.setDate(end.getDate() - 1)
-  end.setHours(23, 59, 59, 999)
+  const today = new Date()
+  const dayOfWeek = today.getDay() // 0=Dom, 6=Sab
 
-  const startOfLastWeek = new Date(start)
-  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7)
+  // Último sábado completo (se hoje é sábado, pega o anterior)
+  const daysToLastSat = dayOfWeek === 6 ? 7 : dayOfWeek + 1
+  const lastSat = new Date(today)
+  lastSat.setDate(today.getDate() - daysToLastSat)
+  lastSat.setHours(23, 59, 59, 999)
 
-  return { start: startOfLastWeek, end }
+  // Domingo dessa mesma semana (6 dias antes do sábado)
+  const lastSun = new Date(lastSat)
+  lastSun.setDate(lastSat.getDate() - 6)
+  lastSun.setHours(0, 0, 0, 0)
+
+  return { start: lastSun, end: lastSat }
 }
 
-export async function generateWeeklyReportForClient(clientId: string): Promise<string | null> {
+export async function generateWeeklyReportForClient(
+  clientId: string,
+  fromStr?: string,
+  toStr?: string,
+): Promise<string | null> {
   const today = new Date()
   const { start: weekStart } = getWeekRange()
   const { start: monthStart } = getMonthRange(today)
-  const { start: lastWeekStart, end: lastWeekEnd } = getLastWeekRange()
+  const defaultRange = getLastWeekRange()
+  const lastWeekStart = fromStr ? new Date(fromStr + 'T00:00:00') : defaultRange.start
+  const lastWeekEnd   = toStr   ? new Date(toStr   + 'T23:59:59') : defaultRange.end
 
   const twoWeeksAgo = new Date(lastWeekStart)
   twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7)
@@ -164,7 +176,7 @@ export async function generateWeeklyReportForClient(clientId: string): Promise<s
   const prompt = `Você é o assistente de tráfego pago e performance da Arkza, especializado em e-commerces.
 Gere um relatório semanal curto, direto e consultivo para ser enviado via WhatsApp ao cliente. Sem markdown, use apenas emojis como marcadores, frases curtas e linha em branco entre blocos.
 
-DADOS DO CLIENTE:
+🗓️ DADOS DO CLIENTE:
 - Nome: ${client.name}
 - Período: ${periodoStr}
 - ROAS meta: ${roasMetaStr}
@@ -179,24 +191,26 @@ DADOS DO CLIENTE:
 - Faturamento acumulado no mês: ${month.revenue > 0 ? formatCurrency(month.revenue) : 'sem dados'} (${daysElapsed} de ${daysInMonth} dias)
 - Projeção para fechar o mês: ${projecaoMes !== null ? formatCurrency(projecaoMes) : 'insuficiente'}
 - Resultado vs meta ROAS: ${roasAboveMeta === true ? 'ACIMA DA META' : roasAboveMeta === false ? 'ABAIXO DA META' : 'meta não definida'}
-- Contexto sazonal: não informado (ignore se não houver)
+- Contexto sazonal: não informado
 
-ESTRUTURA OBRIGATÓRIA DO RELATÓRIO (siga exatamente):
+TOP PRODUTOS DA SEMANA (dados reais do GA4):
+${topProductsStr}
 
-📊 RELATÓRIO SEMANAL — ${client.name.toUpperCase()} 📅 ${periodoStr}
+📊 ESTRUTURA OBRIGATÓRIA DO RELATÓRIO (siga exatamente):
+
+📊 RELATÓRIO SEMANAL — ${client.name.toUpperCase()}
+📅 ${periodoStr}
 
 [1 frase de abertura com tom calibrado:
-→ Se ROAS acima da meta ou faturamento cresceu: tom celebratório
-→ Se resultado abaixo da meta ou queda: tom estratégico e tranquilizador
-→ Nunca mencione "abaixo da meta" de forma alarmista]
+→ Resultado acima da meta: celebratório
+→ Resultado abaixo da meta ou queda: estratégico e tranquilizador
+→ Se houver sazonalidade ativa ou recente: mencione em 1 frase que oscilação é natural e já esperada]
 
 📈 Resultados da semana
 [Máximo 5 linhas. Traga: faturamento com variação, compras com variação, sessões com variação e ROAS realizado vs meta. Seja direto — número, emoji e 1 adjetivo/contexto curto por linha. Sem explicações longas.]
 
 👗 O que mais vendeu
-TOP PRODUTOS DA SEMANA (dados reais do GA4):
-${topProductsStr}
-[Baseie-se nos dados acima. Destaque o produto/categoria líder em receita. Se houver uma categoria dominante, mencione. Máximo 4 linhas no relatório final, sem repetir os números — resuma de forma consultiva e natural.]
+[Máximo 4 linhas. Liste os produtos ou categorias que lideraram em receita com base nos dados do GA4 acima. Se uma coleção ou categoria dominar claramente, destaque em 1 frase. Nada além disso.]
 
 🚀 Próximos passos
 [3 ações curtas, em primeira pessoa do plural. 1 linha cada.]
@@ -207,7 +221,23 @@ Ativaremos [ação #3]
 ${lw.taxaConversao !== null && lw.taxaConversao < 1 ? `⚠️ INCLUA este bloco pois a taxa de conversão está abaixo de 1%:
 
 🔍 Atenção na jornada
-[Máximo 4 linhas. Identifique a trava (taxa de conversão baixa), 1 possível motivo e 1 sugestão prática. Tom consultivo e parceiro, nunca alarmista.]` : `NÃO inclua o bloco "Atenção na jornada" pois a taxa de conversão está adequada (≥1%).`}
+[Máximo 4 linhas. Identifique a trava, 1 possível motivo e 1 sugestão prática pro cliente. Tom consultivo e parceiro, nunca alarmista.]` : `NÃO inclua o bloco "Atenção na jornada" pois a taxa de conversão está adequada (≥1%).`}
+
+💜 A Arkza tá com você.
+[1 frase curta de fechamento — diferente a cada relatório.]
+
+⚙️ REGRAS:
+- Máximo de 3 blocos fixos + 1 condicional
+- Cada bloco: no máximo 5 linhas
+- Frases curtas, sem termos técnicos
+- Nunca culpe o tráfego
+- Primeira pessoa do plural nos próximos passos
+- Tom emocional calibrado pelo resultado
+- Sazonalidade sempre contextualizada em 1 frase, nunca em parágrafo
+- Sem markdown (sem *, #, -)
+- Use apenas emojis como marcadores visuais
+- Linha em branco entre cada bloco
+- Gere apenas o texto do relatório, pronto para copiar e enviar no WhatsApp`
 
 REGRAS:
 - Sem markdown (sem *, #, -, **)
@@ -216,30 +246,24 @@ REGRAS:
 - Linha em branco entre cada bloco
 - Gere apenas o texto do relatório, pronto para copiar e enviar no WhatsApp`
 
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 800,
-      messages: [{ role: 'user', content: prompt }],
-    })
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 800,
+    messages: [{ role: 'user', content: prompt }],
+  })
 
-    const content = response.content[0]
-    if (content.type !== 'text') return null
+  const content = response.content[0]
+  if (content.type !== 'text') throw new Error('Resposta da IA inválida.')
 
-    const reportContent = content.text
+  const reportContent = content.text
 
-    // Salva no banco
-    await prisma.weeklyReport.upsert({
-      where: { clientId_weekStart: { clientId, weekStart } },
-      create: { clientId, weekStart, content: reportContent },
-      update: { content: reportContent, generatedAt: new Date() },
-    })
+  await prisma.weeklyReport.upsert({
+    where: { clientId_weekStart: { clientId, weekStart } },
+    create: { clientId, weekStart, content: reportContent },
+    update: { content: reportContent, generatedAt: new Date() },
+  })
 
-    return reportContent
-  } catch (err) {
-    console.error(`[WeeklyReport] Erro ao gerar relatório para ${clientId}:`, err)
-    return null
-  }
+  return reportContent
 }
 
 export async function generateAllWeeklyReports(): Promise<{

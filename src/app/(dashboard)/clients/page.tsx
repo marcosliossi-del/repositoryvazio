@@ -1,4 +1,4 @@
-export const revalidate = 30
+export const revalidate = 120
 
 import Link from 'next/link'
 import { requireSession, getClientsList } from '@/lib/dal'

@@ -14,4 +14,6 @@ function createPrismaClient() {
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient()
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+// Always persist singleton — prevents creating a new PrismaClient (and new DB connection)
+// on every serverless invocation in the same container.
+if (!globalForPrisma.prisma) globalForPrisma.prisma = prisma
