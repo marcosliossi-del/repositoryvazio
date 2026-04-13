@@ -176,6 +176,108 @@ export async function linkGoogleAdsAccount(
   return { success: true, accountName: name ?? `Google Ads — ${externalId}` }
 }
 
+// ── Nuvemshop ────────────────────────────────────────────────────────────────
+
+/**
+ * Gera a URL de autorização OAuth da Nuvemshop.
+ * O lojista é redirecionado para instalar o app na Nuvemshop.
+ */
+export async function getNuvemshopInstallUrl(clientId: string): Promise<{ url?: string; error?: string }> {
+  const session = await requireSession()
+
+  if (session.role !== 'ADMIN') {
+    const assignment = await prisma.clientAssignment.findFirst({
+      where: { clientId, userId: session.userId },
+    })
+    if (!assignment) {
+      return { error: 'Você não tem permissão para vincular contas a este cliente.' }
+    }
+  }
+
+  const appId = process.env.NUVEMSHOP_APP_ID
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL
+
+  if (!appId || !appUrl) {
+    return { error: 'Variáveis NUVEMSHOP_APP_ID e NEXT_PUBLIC_APP_URL devem estar configuradas.' }
+  }
+
+  const url = `${appUrl}/api/nuvemshop/auth?clientId=${clientId}`
+  return { url }
+}
+
+/**
+ * Vincula manualmente uma loja Nuvemshop (quando o token já é conhecido).
+ */
+export async function linkNuvemshopStore(
+  clientId: string,
+  storeId: string,
+  accessToken: string,
+  storeName?: string
+): Promise<LinkAccountState> {
+  const session = await requireSession()
+
+  if (session.role !== 'ADMIN') {
+    const assignment = await prisma.clientAssignment.findFirst({
+      where: { clientId, userId: session.userId },
+    })
+    if (!assignment) {
+      return { error: 'Você não tem permissão para vincular contas a este cliente.' }
+    }
+  }
+
+  const externalId = storeId.trim()
+
+  const existing = await prisma.platformAccount.findUnique({
+    where: { clientId_platform_externalId: { clientId, platform: 'NUVEMSHOP', externalId } },
+    include: { nuvemshopStore: true },
+  })
+
+  if (existing) {
+    if (existing.active) {
+      return { error: 'Esta loja Nuvemshop já está vinculada a este cliente.' }
+    }
+
+    await prisma.platformAccount.update({
+      where: { id: existing.id },
+      data: { active: true, accessToken, name: storeName ?? existing.name },
+    })
+
+    if (existing.nuvemshopStore) {
+      await prisma.nuvemshopStore.update({
+        where: { id: existing.nuvemshopStore.id },
+        data: { accessToken, storeName: storeName ?? existing.nuvemshopStore.storeName },
+      })
+    } else {
+      await prisma.nuvemshopStore.create({
+        data: { platformAccountId: existing.id, storeId: externalId, accessToken, storeName },
+      })
+    }
+
+    revalidatePath('/clients')
+    return { success: true, accountName: storeName ?? existing.name ?? externalId }
+  }
+
+  await prisma.platformAccount.create({
+    data: {
+      clientId,
+      platform: 'NUVEMSHOP',
+      externalId,
+      name: storeName ?? `Nuvemshop — ${externalId}`,
+      accessToken,
+      nuvemshopStore: {
+        create: {
+          storeId: externalId,
+          accessToken,
+          storeName,
+        },
+      },
+    },
+  })
+
+  revalidatePath('/clients')
+  return { success: true, accountName: storeName ?? `Nuvemshop — ${externalId}` }
+}
+
 // ── Desvincular ───────────────────────────────────────────────────────────────
 
 export async function unlinkPlatformAccount(platformAccountId: string): Promise<{ error?: string }> {
