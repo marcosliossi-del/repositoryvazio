@@ -26,6 +26,7 @@ import { DateRangePicker } from '@/components/clients/DateRangePicker'
 import { ClientChatPanel } from '@/components/clients/ClientChatPanel'
 import { WeeklyReportCard } from '@/components/clients/WeeklyReportCard'
 import { GoalPaceCard } from '@/components/clients/GoalPaceCard'
+import { KPIDiagnosticCard } from '@/components/clients/KPIDiagnosticCard'
 import { CampaignBreakdownTable } from '@/components/clients/CampaignBreakdownTable'
 import { CampaignInsightCard } from '@/components/clients/CampaignInsightCard'
 import { RevenuePaceChart } from '@/components/clients/RevenuePaceChart'
@@ -490,6 +491,16 @@ export default async function ClientDetailPage({
           </div>
         )}
       </div>
+
+      {/* ── Diagnóstico de KPIs ──────────────────────────────────────────── */}
+      <KPIDiagnosticCard
+        cps={kpis.cps}
+        taxaConversao={kpis.taxaConversao}
+        ticketMedio={kpis.ticketMedio}
+        cpsPct={kpis.cpsTrend}
+        taxaPct={kpis.taxaConversaoTrend}
+        ticketPct={kpis.ticketMedioTrend}
+      />
 
       {/* ── Ritmo das Metas Mensais ───────────────────────────────────────── */}
       {paceGoals.length > 0 && (
