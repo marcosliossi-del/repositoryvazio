@@ -15,22 +15,34 @@ import { getWeekRange, getMonthRange, formatCurrency } from '@/lib/utils'
 const anthropic = new Anthropic()
 
 function getLastWeekRange(): { start: Date; end: Date } {
-  const { start } = getWeekRange()
-  const end = new Date(start)
-  end.setDate(end.getDate() - 1)
-  end.setHours(23, 59, 59, 999)
+  const today = new Date()
+  const dayOfWeek = today.getDay() // 0=Dom, 6=Sab
 
-  const startOfLastWeek = new Date(start)
-  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7)
+  // Último sábado completo (se hoje é sábado, pega o anterior)
+  const daysToLastSat = dayOfWeek === 6 ? 7 : dayOfWeek + 1
+  const lastSat = new Date(today)
+  lastSat.setDate(today.getDate() - daysToLastSat)
+  lastSat.setHours(23, 59, 59, 999)
 
-  return { start: startOfLastWeek, end }
+  // Domingo dessa mesma semana (6 dias antes do sábado)
+  const lastSun = new Date(lastSat)
+  lastSun.setDate(lastSat.getDate() - 6)
+  lastSun.setHours(0, 0, 0, 0)
+
+  return { start: lastSun, end: lastSat }
 }
 
-export async function generateWeeklyReportForClient(clientId: string): Promise<string | null> {
+export async function generateWeeklyReportForClient(
+  clientId: string,
+  fromStr?: string,
+  toStr?: string,
+): Promise<string | null> {
   const today = new Date()
   const { start: weekStart } = getWeekRange()
   const { start: monthStart } = getMonthRange(today)
-  const { start: lastWeekStart, end: lastWeekEnd } = getLastWeekRange()
+  const defaultRange = getLastWeekRange()
+  const lastWeekStart = fromStr ? new Date(fromStr + 'T00:00:00') : defaultRange.start
+  const lastWeekEnd   = toStr   ? new Date(toStr   + 'T23:59:59') : defaultRange.end
 
   const twoWeeksAgo = new Date(lastWeekStart)
   twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 7)

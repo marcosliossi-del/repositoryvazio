@@ -18,12 +18,18 @@ export async function generateClientReport(
 ): Promise<ReportState> {
   await requireSession()
 
-  const clientId = formData.get('clientId') as string
+  const clientId   = formData.get('clientId')   as string
   const clientSlug = formData.get('clientSlug') as string
+  const fromStr    = formData.get('from')        as string | null
+  const toStr      = formData.get('to')          as string | null
 
   if (!clientId) return { error: 'Cliente não informado.' }
 
-  const content = await generateWeeklyReportForClient(clientId)
+  const content = await generateWeeklyReportForClient(
+    clientId,
+    fromStr || undefined,
+    toStr   || undefined,
+  )
   if (!content) return { error: 'Erro ao gerar relatório. Verifique se há dados sincronizados.' }
 
   revalidatePath(`/clients/${clientSlug}`)
