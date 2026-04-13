@@ -228,30 +228,24 @@ REGRAS:
 - Linha em branco entre cada bloco
 - Gere apenas o texto do relatório, pronto para copiar e enviar no WhatsApp`
 
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 800,
-      messages: [{ role: 'user', content: prompt }],
-    })
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 800,
+    messages: [{ role: 'user', content: prompt }],
+  })
 
-    const content = response.content[0]
-    if (content.type !== 'text') return null
+  const content = response.content[0]
+  if (content.type !== 'text') throw new Error('Resposta da IA inválida.')
 
-    const reportContent = content.text
+  const reportContent = content.text
 
-    // Salva no banco
-    await prisma.weeklyReport.upsert({
-      where: { clientId_weekStart: { clientId, weekStart } },
-      create: { clientId, weekStart, content: reportContent },
-      update: { content: reportContent, generatedAt: new Date() },
-    })
+  await prisma.weeklyReport.upsert({
+    where: { clientId_weekStart: { clientId, weekStart } },
+    create: { clientId, weekStart, content: reportContent },
+    update: { content: reportContent, generatedAt: new Date() },
+  })
 
-    return reportContent
-  } catch (err) {
-    console.error(`[WeeklyReport] Erro ao gerar relatório para ${clientId}:`, err)
-    return null
-  }
+  return reportContent
 }
 
 export async function generateAllWeeklyReports(): Promise<{

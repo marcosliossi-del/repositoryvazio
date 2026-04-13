@@ -25,13 +25,17 @@ export async function generateClientReport(
 
   if (!clientId) return { error: 'Cliente não informado.' }
 
-  const content = await generateWeeklyReportForClient(
-    clientId,
-    fromStr || undefined,
-    toStr   || undefined,
-  )
-  if (!content) return { error: 'Erro ao gerar relatório. Verifique se há dados sincronizados.' }
-
-  revalidatePath(`/clients/${clientSlug}`)
-  return { success: true, content }
+  try {
+    const content = await generateWeeklyReportForClient(
+      clientId,
+      fromStr || undefined,
+      toStr   || undefined,
+    )
+    if (!content) return { error: 'Relatório vazio — cliente não encontrado.' }
+    revalidatePath(`/clients/${clientSlug}`)
+    return { success: true, content }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return { error: msg }
+  }
 }
