@@ -999,7 +999,8 @@ export type ManagerWithStats = {
 }
 
 export const getManagersOverview = cache(async (): Promise<ManagerWithStats[]> => {
-  const { start: weekStart } = getWeekRange()
+  const { start: weekStart, end: weekEnd } = getWeekRange()
+  const { start: monthStart, end: monthEnd } = getMonthRange()
 
   // Todos os usuários com atribuições a clientes ativos
   const users = await prisma.user.findMany({
@@ -1018,16 +1019,19 @@ export const getManagersOverview = cache(async (): Promise<ManagerWithStats[]> =
             include: {
               platformAccounts: { where: { active: true }, select: { platform: true } },
               healthScores: {
-                where: { periodStart: { gte: weekStart } },
-                select: { status: true, metric: true },
+                // monthStart covers both monthly (periodStart=1st) and weekly scores
+                where: { periodStart: { gte: monthStart } },
+                select: { status: true, metric: true, period: true },
               },
               goals: {
                 where: {
-                  period: 'WEEKLY',
                   startDate: { lte: new Date() },
-                  endDate: { gte: weekStart },
+                  OR: [
+                    { period: 'WEEKLY', endDate: { gte: weekStart } },
+                    { period: 'MONTHLY', endDate: { gte: monthStart } },
+                  ],
                 },
-                select: { id: true },
+                select: { id: true, period: true },
               },
             },
           },
