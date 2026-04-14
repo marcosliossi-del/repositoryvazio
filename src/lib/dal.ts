@@ -1390,6 +1390,7 @@ export const getManagersMRR = cache(async (): Promise<ManagerMRR[]> => {
   const today = new Date()
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
   const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  const { start: weekStart, end: weekEnd } = getWeekRange()
 
   // Apenas gestores de tráfego ativos com clientes atribuídos
   const managers = await prisma.user.findMany({
@@ -1409,13 +1410,15 @@ export const getManagersMRR = cache(async (): Promise<ManagerMRR[]> => {
               id: true,
               goals: {
                 where: {
-                  period: 'MONTHLY',
                   metric: { in: ['SPEND', 'INVESTMENT'] },
-                  startDate: { lte: monthEnd },
-                  endDate: { gte: monthStart },
+                  OR: [
+                    // Meta mensal direta (INVESTMENT ou SPEND do mês)
+                    { period: 'MONTHLY', startDate: { lte: monthEnd }, endDate: { gte: monthStart } },
+                    // Meta semanal de investimento (será convertida × 4.33)
+                    { period: 'WEEKLY',  startDate: { lte: weekEnd },  endDate: { gte: weekStart } },
+                  ],
                 },
-                select: { targetValue: true },
-                take: 1,
+                select: { targetValue: true, period: true },
               },
             },
           },
@@ -1428,8 +1431,16 @@ export const getManagersMRR = cache(async (): Promise<ManagerMRR[]> => {
     .map((mgr) => {
       const clientCount = mgr.managedClients.length
       const mrr = mgr.managedClients.reduce((sum, a) => {
-        const goal = a.client.goals[0]
-        return sum + (goal ? Number(goal.targetValue) : 0)
+        const goals = a.client.goals
+        // Prefer MONTHLY goal; fall back to WEEKLY × 4.33 for monthly estimate
+        const monthly = goals.find((g) => g.period === 'MONTHLY')
+        const weekly  = goals.find((g) => g.period === 'WEEKLY')
+        const budget = monthly
+          ? Number(monthly.targetValue)
+          : weekly
+          ? Math.round(Number(weekly.targetValue) * 4.33)
+          : 0
+        return sum + budget
       }, 0)
       return {
         userId: mgr.id,
