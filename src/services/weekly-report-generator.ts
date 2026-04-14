@@ -239,13 +239,6 @@ ${lw.taxaConversao !== null && lw.taxaConversao < 1 ? `⚠️ INCLUA este bloco 
 - Linha em branco entre cada bloco
 - Gere apenas o texto do relatório, pronto para copiar e enviar no WhatsApp`
 
-REGRAS:
-- Sem markdown (sem *, #, -, **)
-- Use apenas emojis como marcadores visuais
-- Frases curtas, linguagem próxima e profissional
-- Linha em branco entre cada bloco
-- Gere apenas o texto do relatório, pronto para copiar e enviar no WhatsApp`
-
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 800,
