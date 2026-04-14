@@ -1002,10 +1002,11 @@ export const getManagersOverview = cache(async (): Promise<ManagerWithStats[]> =
   const { start: weekStart, end: weekEnd } = getWeekRange()
   const { start: monthStart, end: monthEnd } = getMonthRange()
 
-  // Todos os usuários com atribuições a clientes ativos
+  // Apenas gestores de tráfego com clientes ativos atribuídos
   const users = await prisma.user.findMany({
     where: {
       active: true,
+      role: 'MANAGER',
       managedClients: { some: { client: { status: 'ACTIVE' } } },
     },
     select: {
@@ -1386,51 +1387,54 @@ export const getManagersMRR = cache(async (): Promise<ManagerMRR[]> => {
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
   const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
 
-  const clients = await prisma.client.findMany({
-    where: { status: 'ACTIVE' },
-    include: {
-      assignments: {
-        where: { isPrimary: true },
-        include: { user: { select: { id: true, name: true } } },
-        take: 1,
-      },
-      goals: {
-        where: {
-          period: 'MONTHLY',
-          metric: { in: ['SPEND', 'INVESTMENT'] },
-          startDate: { lte: monthEnd },
-          endDate: { gte: monthStart },
+  // Apenas gestores de tráfego ativos com clientes atribuídos
+  const managers = await prisma.user.findMany({
+    where: {
+      active: true,
+      role: 'MANAGER',
+      managedClients: { some: { client: { status: 'ACTIVE' } } },
+    },
+    select: {
+      id: true,
+      name: true,
+      managedClients: {
+        where: { client: { status: 'ACTIVE' } },
+        select: {
+          client: {
+            select: {
+              id: true,
+              goals: {
+                where: {
+                  period: 'MONTHLY',
+                  metric: { in: ['SPEND', 'INVESTMENT'] },
+                  startDate: { lte: monthEnd },
+                  endDate: { gte: monthStart },
+                },
+                select: { targetValue: true },
+                take: 1,
+              },
+            },
+          },
         },
-        select: { targetValue: true },
-        take: 1,
       },
     },
   })
 
-  const managerMap = new Map<string, { name: string; mrr: number; clientCount: number }>()
-
-  for (const client of clients) {
-    const mgr = client.assignments[0]?.user
-    if (!mgr) continue
-
-    const budget = client.goals[0] ? Number(client.goals[0].targetValue) : 0
-
-    if (!managerMap.has(mgr.id)) {
-      managerMap.set(mgr.id, { name: mgr.name, mrr: 0, clientCount: 0 })
-    }
-    const entry = managerMap.get(mgr.id)!
-    entry.mrr += budget
-    entry.clientCount += 1
-  }
-
-  return [...managerMap.entries()]
-    .map(([userId, { name, mrr, clientCount }]) => ({
-      userId,
-      name,
-      mrr,
-      clientCount,
-      avgBudgetPerClient: clientCount > 0 ? Math.round(mrr / clientCount) : 0,
-    }))
+  return managers
+    .map((mgr) => {
+      const clientCount = mgr.managedClients.length
+      const mrr = mgr.managedClients.reduce((sum, a) => {
+        const goal = a.client.goals[0]
+        return sum + (goal ? Number(goal.targetValue) : 0)
+      }, 0)
+      return {
+        userId: mgr.id,
+        name: mgr.name,
+        mrr,
+        clientCount,
+        avgBudgetPerClient: clientCount > 0 ? Math.round(mrr / clientCount) : 0,
+      }
+    })
     .sort((a, b) => b.mrr - a.mrr)
 })
 
