@@ -29,7 +29,7 @@ interface Props {
 }
 
 export function TeamMemberRow({ user, isSelf, isAdmin }: Props) {
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [isPending, startTransition] = useTransition()
 
@@ -40,13 +40,19 @@ export function TeamMemberRow({ user, isSelf, isAdmin }: Props) {
     .join('')
     .toUpperCase()
 
+  function openMenu(e: React.MouseEvent<HTMLButtonElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+    setConfirmDelete(false)
+  }
+
   function changeRole(role: Role) {
-    setMenuOpen(false)
+    setMenuPos(null)
     startTransition(() => updateUserRole(user.id, role))
   }
 
   function handleToggleActive() {
-    setMenuOpen(false)
+    setMenuPos(null)
     startTransition(() => toggleUserActive(user.id))
   }
 
@@ -94,17 +100,20 @@ export function TeamMemberRow({ user, isSelf, isAdmin }: Props) {
           <td className="px-4 py-3">
             <div className="relative">
               <button
-                onClick={() => { setMenuOpen(!menuOpen); setConfirmDelete(false) }}
+                onClick={openMenu}
                 disabled={isPending}
                 className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-[#38435C] text-[#87919E] hover:text-[#EBEBEB] transition-colors disabled:opacity-40"
               >
                 <MoreHorizontal size={14} />
               </button>
 
-              {menuOpen && (
+              {menuPos && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                  <div className="absolute right-0 mt-1 w-48 bg-[#0A1E2C] border border-[#38435C] rounded-xl shadow-xl z-20 py-1 overflow-hidden">
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuPos(null)} />
+                  <div
+                    style={{ top: menuPos.top, right: menuPos.right }}
+                    className="fixed w-48 bg-[#0A1E2C] border border-[#38435C] rounded-xl shadow-xl z-50 py-1 overflow-hidden"
+                  >
                     <p className="px-3 py-1.5 text-[10px] font-semibold text-[#87919E] uppercase tracking-wider">Alterar perfil</p>
                     {(['ADMIN', 'MANAGER', 'CS', 'ANALYST'] as Role[])
                       .filter((r) => r !== user.role)
@@ -129,7 +138,7 @@ export function TeamMemberRow({ user, isSelf, isAdmin }: Props) {
 
                     <div className="border-t border-[#38435C] mt-1 pt-1">
                       <button
-                        onClick={() => { setMenuOpen(false); setConfirmDelete(true) }}
+                        onClick={() => { setMenuPos(null); setConfirmDelete(true) }}
                         className="w-full text-left px-3 py-2 text-sm text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors flex items-center gap-2"
                       >
                         <Trash2 size={13} />
