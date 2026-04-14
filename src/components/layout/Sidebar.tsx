@@ -22,25 +22,43 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 
-const navigation = [
+type Role = 'ADMIN' | 'MANAGER' | 'ANALYST'
+
+type NavItemDef = {
+  name: string
+  href: string
+  icon: React.ElementType
+  /** Which roles can see this item. Omit to show to all roles. */
+  roles?: Role[]
+}
+
+type NavSection = {
+  label: string
+  expandable?: boolean
+  /** Which roles can see this entire section. Omit to show to all roles. */
+  roles?: Role[]
+  items: NavItemDef[]
+}
+
+const navigation: NavSection[] = [
   {
     label: 'PRINCIPAL',
     items: [
-      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-      { name: 'Alertas', href: '/alerts', icon: Bell },
-      { name: 'Minhas Tarefas', href: '/tasks', icon: CheckSquare },
+      { name: 'Dashboard',     href: '/dashboard', icon: LayoutDashboard },
+      { name: 'Alertas',       href: '/alerts',    icon: Bell },
+      { name: 'Minhas Tarefas', href: '/tasks',    icon: CheckSquare },
     ],
   },
   {
     label: 'CLIENTES',
     expandable: true,
     items: [
-      { name: 'Meus Clientes', href: '/clients', icon: Users },
-      { name: 'Pipeline CRM', href: '/pipeline', icon: Kanban },
-      { name: 'Novo Onboarding', href: '/clients/new', icon: UserPlus },
-      { name: 'Registro de Operações', href: '/operations', icon: BookOpen },
-      { name: 'Anti Churn & Retenção', href: '/anti-churn', icon: ShieldAlert },
-      { name: 'Relatórios', href: '/reports', icon: BarChart3 },
+      { name: 'Meus Clientes',          href: '/clients',    icon: Users },
+      { name: 'Pipeline CRM',            href: '/pipeline',  icon: Kanban },
+      { name: 'Novo Onboarding',         href: '/clients/new', icon: UserPlus, roles: ['ADMIN'] },
+      { name: 'Registro de Operações',   href: '/operations', icon: BookOpen },
+      { name: 'Anti Churn & Retenção',   href: '/anti-churn', icon: ShieldAlert },
+      { name: 'Relatórios',              href: '/reports',    icon: BarChart3 },
     ],
   },
   {
@@ -51,15 +69,24 @@ const navigation = [
   },
   {
     label: 'AGÊNCIA',
+    roles: ['ADMIN'],
     items: [
-      { name: 'Visão Geral', href: '/agency', icon: Building2 },
-      { name: 'Gestores', href: '/managers', icon: PieChart },
-      { name: 'Equipe', href: '/team', icon: Users },
+      { name: 'Visão Geral', href: '/agency',   icon: Building2 },
+      { name: 'Gestores',    href: '/managers', icon: PieChart },
+      { name: 'Equipe',      href: '/team',     icon: Users },
     ],
   },
 ]
 
-export function Sidebar() {
+function canSee(roles: Role[] | undefined, userRole: Role): boolean {
+  return !roles || roles.includes(userRole)
+}
+
+interface SidebarProps {
+  role: Role
+}
+
+export function Sidebar({ role }: SidebarProps) {
   const pathname = usePathname()
   const [clientsOpen, setClientsOpen] = useState(true)
 
@@ -68,7 +95,6 @@ export function Sidebar() {
       {/* Logo */}
       <div className="h-16 flex items-center px-5 border-b border-[#38435C]">
         <Link href="/dashboard" className="flex items-center gap-2.5">
-          {/* Performli P-box SVG */}
           <svg width="28" height="28" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M50 5L90 28V72L50 95L10 72V28L50 5Z" fill="none" stroke="#95BBE2" strokeWidth="6"/>
             <path d="M50 5L50 50M50 50L90 28M50 50L10 28" stroke="#95BBE2" strokeWidth="4"/>
@@ -82,45 +108,52 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-        {navigation.map((section) => (
-          <div key={section.label} className="mb-4">
-            {section.expandable ? (
-              <>
-                <button
-                  onClick={() => setClientsOpen(!clientsOpen)}
-                  className="flex items-center justify-between w-full px-2 mb-1.5 group"
-                >
-                  <span className="text-[10px] font-semibold text-[#87919E] tracking-widest uppercase group-hover:text-[#EBEBEB] transition-colors">
-                    {section.label}
-                  </span>
-                  {clientsOpen ? (
-                    <ChevronDown size={12} className="text-[#87919E]" />
-                  ) : (
-                    <ChevronRight size={12} className="text-[#87919E]" />
-                  )}
-                </button>
-                {clientsOpen && (
-                  <div className="space-y-0.5">
-                    {section.items.map((item) => (
-                      <NavItem key={item.href} item={item} pathname={pathname} />
-                    ))}
-                  </div>
+        {navigation
+          .filter((section) => canSee(section.roles, role))
+          .map((section) => {
+            const visibleItems = section.items.filter((item) => canSee(item.roles, role))
+            if (visibleItems.length === 0) return null
+
+            return (
+              <div key={section.label} className="mb-4">
+                {section.expandable ? (
+                  <>
+                    <button
+                      onClick={() => setClientsOpen(!clientsOpen)}
+                      className="flex items-center justify-between w-full px-2 mb-1.5 group"
+                    >
+                      <span className="text-[10px] font-semibold text-[#87919E] tracking-widest uppercase group-hover:text-[#EBEBEB] transition-colors">
+                        {section.label}
+                      </span>
+                      {clientsOpen ? (
+                        <ChevronDown size={12} className="text-[#87919E]" />
+                      ) : (
+                        <ChevronRight size={12} className="text-[#87919E]" />
+                      )}
+                    </button>
+                    {clientsOpen && (
+                      <div className="space-y-0.5">
+                        {visibleItems.map((item) => (
+                          <NavItem key={item.href} item={item} pathname={pathname} />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[10px] font-semibold text-[#87919E] tracking-widest uppercase px-2 mb-1.5">
+                      {section.label}
+                    </p>
+                    <div className="space-y-0.5">
+                      {visibleItems.map((item) => (
+                        <NavItem key={item.href} item={item} pathname={pathname} />
+                      ))}
+                    </div>
+                  </>
                 )}
-              </>
-            ) : (
-              <>
-                <p className="text-[10px] font-semibold text-[#87919E] tracking-widest uppercase px-2 mb-1.5">
-                  {section.label}
-                </p>
-                <div className="space-y-0.5">
-                  {section.items.map((item) => (
-                    <NavItem key={item.href} item={item} pathname={pathname} />
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        ))}
+              </div>
+            )
+          })}
       </nav>
 
       {/* Bottom */}
@@ -141,7 +174,7 @@ function NavItem({
   item,
   pathname,
 }: {
-  item: { name: string; href: string; icon: React.ElementType }
+  item: NavItemDef
   pathname: string
 }) {
   const Icon = item.icon

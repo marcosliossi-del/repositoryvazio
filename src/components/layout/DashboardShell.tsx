@@ -18,7 +18,7 @@ export function DashboardShell({ children, session, unreadAlerts }: DashboardShe
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#05141C]">
-      <Sidebar />
+      <Sidebar role={session.role} />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopNav
           session={session}

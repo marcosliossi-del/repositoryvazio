@@ -2,9 +2,12 @@ import { requireSession, getTeamMembers } from '@/lib/dal'
 import { Users } from 'lucide-react'
 import { TeamMemberRow } from '@/components/team/TeamMemberRow'
 import { InviteUserForm } from '@/components/team/InviteUserForm'
+import { redirect } from 'next/navigation'
 
 export default async function TeamPage() {
   const { userId, role } = await requireSession()
+  if (role !== 'ADMIN') redirect('/dashboard')
+
   const members = await getTeamMembers()
 
   const active   = members.filter((m) => m.active).length

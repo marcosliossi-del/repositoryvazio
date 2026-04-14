@@ -15,6 +15,7 @@ export async function createClient(
   formData: FormData
 ): Promise<ClientFormState> {
   const session = await requireSession()
+  if (session.role !== 'ADMIN') return { error: 'Sem permissão para criar clientes.' }
 
   const name = (formData.get('name') as string)?.trim()
   const industry = (formData.get('industry') as string)?.trim()

@@ -3,9 +3,12 @@ import { UsersRound, DollarSign, UserCog } from 'lucide-react'
 import { ManagersClient } from '@/components/managers/ManagersClient'
 import { formatCurrency } from '@/lib/utils'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 export default async function ManagersPage() {
   const session = await requireSession()
+  if (session.role !== 'ADMIN') redirect('/dashboard')
+
   const [managers, mrrData] = await Promise.all([
     getManagersOverview(),
     getManagersMRR(),
