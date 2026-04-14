@@ -106,7 +106,7 @@ model ClientInteraction {
   createdAt   DateTime        @default(now())
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
 }
@@ -329,7 +329,7 @@ model Task {
   updatedAt   DateTime     @updatedAt
 
   client Client? @relation(fields: [clientId], references: [id])
-  user   User    @relation(fields: [assignedTo], references: [id])
+  user   User    @relation(fields: [assignedTo], references: [id], onDelete: Cascade)
 }
 
 // ─── OPERATIONS (Registro de Operações) ──────────────────────────────────────
@@ -346,7 +346,7 @@ model Operation {
   updatedAt DateTime @updatedAt
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id])
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([clientId, createdAt])
 }
@@ -412,7 +412,7 @@ model ClientChatMessage {
   createdAt DateTime @default(now())
 
   chat ClientChat @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  user User       @relation(fields: [userId], references: [id])
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([chatId, createdAt])
 }
