@@ -1,10 +1,11 @@
 import { requireSession, getManagersOverview, getManagersMRR } from '@/lib/dal'
-import { UsersRound, DollarSign } from 'lucide-react'
+import { UsersRound, DollarSign, UserCog } from 'lucide-react'
 import { ManagersClient } from '@/components/managers/ManagersClient'
 import { formatCurrency } from '@/lib/utils'
+import Link from 'next/link'
 
 export default async function ManagersPage() {
-  await requireSession()
+  const session = await requireSession()
   const [managers, mrrData] = await Promise.all([
     getManagersOverview(),
     getManagersMRR(),
@@ -19,12 +20,21 @@ export default async function ManagersPage() {
         <div className="w-10 h-10 rounded-xl bg-[#0A1E2C] border border-[#38435C] flex items-center justify-center">
           <UsersRound size={18} className="text-[#95BBE2]" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-xl font-bold text-[#EBEBEB]">Visão por Gestor</h1>
           <p className="text-[#87919E] text-sm">
             Performance, metas e receita recorrente gerenciada por cada gestor
           </p>
         </div>
+        {session.role === 'ADMIN' && (
+          <Link
+            href="/managers/assignments"
+            className="flex items-center gap-2 h-9 px-4 rounded-lg bg-[#0A1E2C] border border-[#38435C] text-sm text-[#95BBE2] hover:border-[#95BBE2]/60 transition-colors"
+          >
+            <UserCog size={15} />
+            Gerenciar atribuições
+          </Link>
+        )}
       </div>
 
       {/* MRR Cards */}

@@ -1945,3 +1945,91 @@ export const getClientInteractions = cache(async (clientId: string): Promise<Cli
     userName:    r.user.name,
   }))
 })
+
+// ─── Assignments management ───────────────────────────────────────────────────
+
+export type AssignmentClientRow = {
+  id: string
+  name: string
+  slug: string
+  platforms: string[]
+  overallStatus: HealthStatus | null
+  achievementPct: number
+  primaryManagerId: string | null
+  primaryManagerName: string | null
+}
+
+export type AssignmentManager = {
+  id: string
+  name: string
+  clientCount: number
+}
+
+export const getAssignmentsData = cache(async () => {
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+
+  const [rawClients, managers] = await Promise.all([
+    prisma.client.findMany({
+      where: { status: 'ACTIVE' },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        platformAccounts: { where: { active: true }, select: { platform: true } },
+        assignments: {
+          where: { isPrimary: true },
+          select: { userId: true, user: { select: { name: true } } },
+          take: 1,
+        },
+        healthScores: {
+          where: { periodStart: { gte: monthStart } },
+          select: { status: true, achievementPct: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.user.findMany({
+      where: { active: true, role: { in: ['ADMIN', 'MANAGER'] } },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    }),
+  ])
+
+  const clients: AssignmentClientRow[] = rawClients.map((c) => {
+    const scores = c.healthScores
+    const avgPct =
+      scores.length > 0
+        ? scores.reduce((sum, s) => sum + Number(s.achievementPct), 0) / scores.length
+        : 0
+    const overallStatus: HealthStatus | null =
+      scores.length === 0
+        ? null
+        : scores.some((s) => s.status === 'RUIM')
+        ? 'RUIM'
+        : scores.some((s) => s.status === 'REGULAR')
+        ? 'REGULAR'
+        : 'OTIMO'
+
+    const primary = c.assignments[0]
+
+    return {
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      platforms: [...new Set(c.platformAccounts.map((p) => p.platform))],
+      overallStatus,
+      achievementPct: Math.round(avgPct),
+      primaryManagerId: primary?.userId ?? null,
+      primaryManagerName: primary?.user.name ?? null,
+    }
+  })
+
+  const managerRows: AssignmentManager[] = managers.map((m) => ({
+    id: m.id,
+    name: m.name,
+    clientCount: rawClients.filter((c) => c.assignments[0]?.userId === m.id).length,
+  }))
+
+  return { clients, managers: managerRows }
+})
