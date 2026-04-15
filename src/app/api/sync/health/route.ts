@@ -65,13 +65,23 @@ export async function POST(request: NextRequest) {
     clientIds = clients.map((c) => c.id)
   }
 
-  // Process each client
+  // Process clients in parallel batches of 5 to avoid DB overload
+  const BATCH = 5
   const results: { clientId: string; created: number; updated: number; alerts: number }[] = []
 
-  for (const id of clientIds) {
-    const { created, updated, scores } = await recalculateClientHealth(id)
-    const alerts = await dispatchAlertsForClient(id, scores)
-    results.push({ clientId: id, created, updated, alerts })
+  for (let i = 0; i < clientIds.length; i += BATCH) {
+    const batch = clientIds.slice(i, i + BATCH)
+    const batchResults = await Promise.allSettled(
+      batch.map(async (id) => {
+        const { created, updated, scores } = await recalculateClientHealth(id)
+        const alerts = await dispatchAlertsForClient(id, scores)
+        return { clientId: id, created, updated, alerts }
+      })
+    )
+    for (const r of batchResults) {
+      if (r.status === 'fulfilled') results.push(r.value)
+      else results.push({ clientId: '', created: 0, updated: 0, alerts: 0 })
+    }
   }
 
   const totals = results.reduce(

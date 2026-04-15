@@ -12,15 +12,22 @@ export function RecalcHealthButton() {
     setResult(null)
     try {
       const res = await fetch('/api/sync/health', { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' } })
+      if (!res.ok) {
+        const text = await res.text().catch(() => `HTTP ${res.status}`)
+        setResult(`Erro ${res.status}`)
+        console.error('[RecalcHealth]', res.status, text)
+        return
+      }
       const data = await res.json()
       if (data.ok) {
-        setResult(`✓ ${data.clientsProcessed} clientes recalculados`)
-        setTimeout(() => { setResult(null); window.location.reload() }, 1500)
+        setResult(`✓ ${data.clientsProcessed} recalculados`)
+        setTimeout(() => { setResult(null); window.location.reload() }, 2000)
       } else {
-        setResult('Erro ao recalcular')
+        setResult(data.error ?? 'Erro ao recalcular')
       }
-    } catch {
-      setResult('Erro ao recalcular')
+    } catch (e) {
+      setResult('Erro de rede')
+      console.error('[RecalcHealth]', e)
     } finally {
       setLoading(false)
     }
