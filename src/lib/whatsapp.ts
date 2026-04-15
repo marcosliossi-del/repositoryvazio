@@ -29,18 +29,25 @@ function endpoint(path: string) {
   return `${ZAPI_BASE}/${id}/token/${token}/${path}`
 }
 
-/** Envia mensagem para um número ou ID de grupo */
-export async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
+/** Envia mensagem para um número ou ID de grupo, com menções opcionais */
+export async function sendWhatsApp(
+  phone: string,
+  message: string,
+  mentioned?: string[],
+): Promise<boolean> {
   if (!process.env.ZAPI_INSTANCE_ID || !process.env.ZAPI_TOKEN) {
     console.warn('[whatsapp] ZAPI_INSTANCE_ID ou ZAPI_TOKEN não configurados.')
     return false
   }
 
   try {
+    const body: Record<string, unknown> = { phone, message }
+    if (mentioned && mentioned.length > 0) body.mentioned = mentioned
+
     const res = await fetch(endpoint('send-text'), {
       method:  'POST',
       headers: baseHeaders(),
-      body:    JSON.stringify({ phone, message }),
+      body:    JSON.stringify(body),
     })
 
     if (!res.ok) {
@@ -55,15 +62,53 @@ export async function sendWhatsApp(phone: string, message: string): Promise<bool
 }
 
 /**
- * Envia para o grupo configurado em WHATSAPP_GROUP_ID.
- * Se não houver grupo, usa WHATSAPP_NOTIFY_NUMBERS (lista de números).
- * Retorna quantos envios foram bem-sucedidos.
+ * Busca os participantes de um grupo Z-API.
+ * Retorna lista de phones (ex: "5511999999999").
  */
-export async function broadcastWhatsApp(message: string): Promise<number> {
+export async function getGroupParticipants(groupId: string): Promise<string[]> {
+  if (!process.env.ZAPI_INSTANCE_ID || !process.env.ZAPI_TOKEN) return []
+
+  try {
+    // Z-API endpoint: GET /group-participants/{phone}
+    // O groupId já vem no formato "120363XXXX@g.us"
+    const phone = encodeURIComponent(groupId)
+    const res = await fetch(endpoint(`group-participants/${phone}`), {
+      headers: baseHeaders(),
+    })
+    if (!res.ok) {
+      console.warn(`[whatsapp] Não foi possível buscar participantes: HTTP ${res.status}`)
+      return []
+    }
+    const json = await res.json() as Array<Record<string, unknown>>
+    // Z-API retorna array de objetos com campo "phone" ou "id"
+    return json
+      .map((p) => String(p.phone ?? p.id ?? '').replace(/[^0-9]/g, ''))
+      .filter((p) => p.length >= 10)
+  } catch (err) {
+    console.warn('[whatsapp] Erro ao buscar participantes do grupo:', err)
+    return []
+  }
+}
+
+/**
+ * Envia para o grupo (WHATSAPP_GROUP_ID) mencionando todos os participantes.
+ * Se não houver grupo configurado, envia para WHATSAPP_NOTIFY_NUMBERS sem menções.
+ */
+export async function broadcastWhatsApp(message: string, mentionAll = false): Promise<number> {
   const groupId = process.env.WHATSAPP_GROUP_ID?.trim()
 
   if (groupId) {
-    const ok = await sendWhatsApp(groupId, message)
+    let mentioned: string[] | undefined
+    if (mentionAll) {
+      const participants = await getGroupParticipants(groupId)
+      if (participants.length > 0) {
+        // Adiciona "@phone" ao final da mensagem para cada participante
+        const mentionLine = participants.map((p) => `@${p}`).join(' ')
+        message = `${message}\n${mentionLine}`
+        mentioned = participants
+      }
+    }
+    const ok = await sendWhatsApp(groupId, message, mentioned)
     return ok ? 1 : 0
   }
 

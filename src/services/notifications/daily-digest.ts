@@ -159,6 +159,7 @@ export async function sendDailyDigest(): Promise<{ sent: number; skipped: boolea
   lines.push(`_Acesse o painel para mais detalhes._`)
 
   const message = lines.join('\n')
-  const sent = await broadcastWhatsApp(message)
+  // mentionAll = true: menciona todos os participantes do grupo ao final
+  const sent = await broadcastWhatsApp(message, true)
   return { sent, skipped: false }
 }
