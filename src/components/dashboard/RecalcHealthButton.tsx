@@ -29,10 +29,12 @@ export function RecalcHealthButton() {
 
       while (true) {
         const { done, value } = await reader.read()
-        if (done) break
 
-        buffer += decoder.decode(value, { stream: true })
+        if (!done) {
+          buffer += decoder.decode(value, { stream: true })
+        }
 
+        // Process buffered SSE messages (also on done, to flush last chunk)
         const parts = buffer.split('\n\n')
         buffer = parts.pop() ?? ''
 
@@ -53,19 +55,20 @@ export function RecalcHealthButton() {
               setProgress({ done: event.done, total: event.total })
               window.dispatchEvent(new CustomEvent('sync-row-update', { detail: event.row }))
             }
-
-            if (event.type === 'complete') {
-              window.dispatchEvent(new CustomEvent('sync-complete', { detail: {} }))
-              // Show a clear "reloading" state so the user knows the full
-              // dashboard (health summary, manager cards, alerts) is refreshing
-              setState('reloading')
-              setLabel(null)
-              setProgress(null)
-              setTimeout(() => window.location.reload(), 1200)
-            }
           } catch { /* malformed SSE event */ }
         }
+
+        if (done) break
       }
+
+      // Stream closed = all clients processed. Trigger full dashboard refresh.
+      // This runs regardless of whether the 'complete' event was received,
+      // making the reload reliable even if the last SSE chunk was lost.
+      window.dispatchEvent(new CustomEvent('sync-complete', { detail: {} }))
+      setState('reloading')
+      setLabel(null)
+      setProgress(null)
+      setTimeout(() => window.location.reload(), 1200)
     } catch (e) {
       setState('idle')
       setLabel('Erro de conexão')
