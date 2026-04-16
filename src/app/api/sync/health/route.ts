@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { recalculateClientHealth } from '@/services/health-scorer'
 import { dispatchAlertsForClient } from '@/services/alert-dispatcher'
@@ -92,6 +93,11 @@ export async function POST(request: NextRequest) {
     }),
     { created: 0, updated: 0, alerts: 0 }
   )
+
+  // Invalidate Next.js page cache and unstable_cache so the dashboard
+  // reloads with fresh health scores immediately after recalculation
+  revalidatePath('/dashboard', 'page')
+  revalidatePath('/clients', 'page')
 
   return NextResponse.json({
     ok: true,

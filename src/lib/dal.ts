@@ -386,7 +386,7 @@ async function _fetchClientsList(userId: string, role: string) {
   })
 }
 
-export const getClientsList = unstable_cache(_fetchClientsList, ['getClientsList'], { revalidate: 60 })
+export const getClientsList = unstable_cache(_fetchClientsList, ['getClientsList'], { revalidate: 30 })
 
 // ─── Client detail ────────────────────────────────────────────────────────────
 
