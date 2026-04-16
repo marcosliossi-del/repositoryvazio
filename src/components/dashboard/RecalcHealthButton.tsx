@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, CheckCircle2 } from 'lucide-react'
 
-type SyncState = 'idle' | 'running' | 'done'
+type SyncState = 'idle' | 'running' | 'reloading' | 'done'
 
 export function RecalcHealthButton() {
   const [state,    setState]    = useState<SyncState>('idle')
@@ -45,28 +45,23 @@ export function RecalcHealthButton() {
             if (event.type === 'start') {
               setLabel(event.name)
               setProgress({ done: event.done, total: event.total })
-              // Tell the table which row is currently syncing
               window.dispatchEvent(new CustomEvent('sync-client-start', { detail: { clientId: event.clientId } }))
             }
 
             if (event.type === 'done' && event.row) {
               setLabel(event.name)
               setProgress({ done: event.done, total: event.total })
-              // Push updated row data to the operational table in real-time
               window.dispatchEvent(new CustomEvent('sync-row-update', { detail: event.row }))
             }
 
             if (event.type === 'complete') {
-              setState('done')
-              setLabel(`✓ ${event.total} clientes`)
-              setProgress(null)
               window.dispatchEvent(new CustomEvent('sync-complete', { detail: {} }))
-              // Reload to refresh health summary, manager cards, alerts, checklist
-              setTimeout(() => {
-                setState('idle')
-                setLabel(null)
-                window.location.reload()
-              }, 1800)
+              // Show a clear "reloading" state so the user knows the full
+              // dashboard (health summary, manager cards, alerts) is refreshing
+              setState('reloading')
+              setLabel(null)
+              setProgress(null)
+              setTimeout(() => window.location.reload(), 1200)
             }
           } catch { /* malformed SSE event */ }
         }
@@ -78,8 +73,16 @@ export function RecalcHealthButton() {
     }
   }
 
-  const isRunning = state === 'running'
+  if (state === 'reloading') {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-[#22C55E] animate-pulse">
+        <CheckCircle2 size={12} />
+        <span>Atualizando dashboard...</span>
+      </span>
+    )
+  }
 
+  const isRunning    = state === 'running'
   const displayLabel =
     isRunning && label && progress
       ? `${label} (${progress.done}/${progress.total})`
@@ -88,7 +91,7 @@ export function RecalcHealthButton() {
   return (
     <button
       onClick={handleClick}
-      disabled={isRunning || state === 'done'}
+      disabled={isRunning}
       className="flex items-center gap-1.5 text-xs text-[#87919E] hover:text-[#EBEBEB] transition-colors disabled:opacity-60"
       title="Sincronizar todos os clientes e recalcular saúde"
     >
