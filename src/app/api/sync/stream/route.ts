@@ -6,18 +6,23 @@ import { syncMetaAccount } from '@/services/meta-ads/sync'
 import { syncGoogleAdsAccount } from '@/services/google-ads/sync'
 import { recalculateClientHealth } from '@/services/health-scorer'
 import { dispatchAlertsForClient } from '@/services/alert-dispatcher'
+import { getWeekRange, getMonthRange } from '@/lib/utils'
 
 /**
  * GET /api/sync/stream
  *
- * Server-Sent Events endpoint. Streams sync progress client-by-client:
- *   1. For each active client, syncs all platforms in parallel
- *   2. Recalculates health scores
- *   3. Sends a SSE event after each client completes
+ * Server-Sent Events: syncs each active client one-by-one and streams
+ * an event after each client completes, including updated row metrics.
+ *
+ * Events:
+ *   { type: 'start',    clientId, name, done, total }
+ *   { type: 'done',     clientId, name, done, total, row: OperationalRow }
+ *   { type: 'error',    clientId, name, done, total }
+ *   { type: 'complete', done, total }
  *
  * Auth: ADMIN session only
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const session = await getSession()
   if (!session || session.role !== 'ADMIN') {
     return new Response('Unauthorized', { status: 401 })
@@ -28,36 +33,41 @@ export async function GET(request: NextRequest) {
     select: {
       id: true,
       name: true,
+      slug: true,
       platformAccounts: {
         where: { active: true },
         select: { id: true, platform: true },
+      },
+      assignments: {
+        where: { isPrimary: true },
+        include: { user: { select: { name: true } } },
+        take: 1,
       },
     },
     orderBy: { name: 'asc' },
   })
 
   const total = clients.length
-  const enc = new TextEncoder()
+  const enc   = new TextEncoder()
 
   const stream = new ReadableStream({
     async start(controller) {
       const send = (data: object) => {
-        try {
-          controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`))
-        } catch {
-          // client disconnected — ignore
-        }
+        try { controller.enqueue(enc.encode(`data: ${JSON.stringify(data)}\n\n`)) } catch { /* disconnected */ }
       }
+
+      const { start: weekStart, end: weekEnd } = getWeekRange()
+      const { start: monthStart }               = getMonthRange()
 
       let done = 0
 
       for (const client of clients) {
-        send({ type: 'start', name: client.name, done, total })
+        send({ type: 'start', clientId: client.id, name: client.name, done, total })
 
         try {
-          const ga4Ids     = client.platformAccounts.filter(a => a.platform === 'GA4').map(a => a.id)
-          const metaIds    = client.platformAccounts.filter(a => a.platform === 'META_ADS').map(a => a.id)
-          const gadsIds    = client.platformAccounts.filter(a => a.platform === 'GOOGLE_ADS').map(a => a.id)
+          const ga4Ids  = client.platformAccounts.filter(a => a.platform === 'GA4').map(a => a.id)
+          const metaIds = client.platformAccounts.filter(a => a.platform === 'META_ADS').map(a => a.id)
+          const gadsIds = client.platformAccounts.filter(a => a.platform === 'GOOGLE_ADS').map(a => a.id)
 
           // All platforms in parallel for this client
           await Promise.allSettled([
@@ -67,14 +77,17 @@ export async function GET(request: NextRequest) {
           ])
 
           // Recalculate health with fresh data
-          const { created, updated, scores } = await recalculateClientHealth(client.id)
+          const { scores } = await recalculateClientHealth(client.id)
           await dispatchAlertsForClient(client.id, scores)
 
+          // Compute updated operational row
+          const row = await getClientOperationalRow(client, weekStart, weekEnd, monthStart)
+
           done++
-          send({ type: 'done', name: client.name, done, total, scores: created + updated })
+          send({ type: 'done', clientId: client.id, name: client.name, done, total, row })
         } catch {
           done++
-          send({ type: 'error', name: client.name, done, total })
+          send({ type: 'error', clientId: client.id, name: client.name, done, total })
         }
       }
 
@@ -85,10 +98,86 @@ export async function GET(request: NextRequest) {
 
   return new Response(stream, {
     headers: {
-      'Content-Type':  'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection':    'keep-alive',
-      'X-Accel-Buffering': 'no', // disable nginx buffering on Vercel
+      'Content-Type':      'text/event-stream',
+      'Cache-Control':     'no-cache',
+      'Connection':        'keep-alive',
+      'X-Accel-Buffering': 'no',
     },
   })
+}
+
+// ─── Per-client operational row computation ────────────────────────────────────
+
+async function getClientOperationalRow(
+  client: { id: string; name: string; slug: string; assignments: { user: { name: string } }[] },
+  weekStart: Date,
+  weekEnd: Date,
+  monthStart: Date,
+) {
+  const today = new Date()
+
+  const [snaps, healthScores, goals] = await Promise.all([
+    prisma.metricSnapshot.findMany({
+      where: { clientId: client.id, date: { gte: monthStart, lte: today } },
+      select: {
+        spend: true, clicks: true, conversions: true, conversionValue: true,
+        date: true, platformAccount: { select: { platform: true } },
+      },
+    }),
+    prisma.healthScore.findMany({
+      where: { clientId: client.id, periodStart: { gte: monthStart } },
+      select: { status: true },
+    }),
+    prisma.goal.findMany({
+      where: {
+        clientId: client.id, metric: 'SPEND', period: 'WEEKLY',
+        startDate: { lte: weekEnd }, endDate: { gte: weekStart },
+      },
+      select: { targetValue: true },
+      take: 1,
+    }),
+  ])
+
+  const ga4  = snaps.filter(x => x.platformAccount.platform === 'GA4')
+  const ads  = snaps.filter(x => x.platformAccount.platform !== 'GA4')
+
+  const spend        = ads.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+  const sessions     = ga4.reduce((s, x) => s + (x.clicks ?? 0), 0)
+  const ga4Purchases = ga4.reduce((s, x) => s + (x.conversions ?? 0), 0)
+  const adPurchases  = ads.reduce((s, x) => s + (x.conversions ?? 0), 0)
+  const purchases    = ga4Purchases > 0 ? ga4Purchases : adPurchases
+  const ga4Rev       = ga4.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+  const adRev        = ads.reduce((s, x) => s + Number(x.conversionValue ?? 0), 0)
+  const revenue      = ga4Rev > 0 ? ga4Rev : adRev
+
+  const roas          = spend > 0 && revenue > 0 ? revenue / spend : null
+  const cpa           = spend > 0 && purchases > 0 ? spend / purchases : null
+  const cps           = spend > 0 && sessions > 0 ? spend / sessions : null
+  const taxaConversao = sessions > 0 && purchases > 0 ? (purchases / sessions) * 100 : null
+
+  const overallStatus =
+    healthScores.length === 0 ? null
+    : healthScores.some(s => s.status === 'RUIM')    ? 'RUIM'
+    : healthScores.some(s => s.status === 'REGULAR') ? 'REGULAR'
+    : 'OTIMO'
+
+  const weekSnaps     = ads.filter(x => { const d = new Date(x.date); return d >= weekStart && d <= weekEnd })
+  const budgetConsumed = weekSnaps.reduce((s, x) => s + Number(x.spend ?? 0), 0)
+  const budgetPlanned  = goals[0] ? Number(goals[0].targetValue) : null
+
+  return {
+    id: client.id,
+    name: client.name,
+    slug: client.slug,
+    primaryManager: client.assignments[0]?.user.name ?? null,
+    vendas:          purchases > 0 ? purchases : null,
+    cpa,
+    roas,
+    gasto:           spend > 0 ? spend : null,
+    cps,
+    taxaConversao,
+    overallStatus,
+    budgetConsumed:  budgetConsumed > 0 ? budgetConsumed : null,
+    budgetPlanned,
+  }
 }

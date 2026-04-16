@@ -24,6 +24,7 @@ export type OperationalRow = {
 
 interface Props {
   rows: OperationalRow[]
+  syncingClientId?: string | null
 }
 
 function fmt(value: number | null, type: 'currency' | 'number' | 'roas' | 'percent'): string {
@@ -61,7 +62,7 @@ function BudgetCell({ consumed, planned }: { consumed: number; planned: number }
   )
 }
 
-export function OperationalClientTable({ rows }: Props) {
+export function OperationalClientTable({ rows, syncingClientId }: Props) {
   if (rows.length === 0) {
     return (
       <div className="flex items-center justify-center py-12 text-[#87919E] text-sm">
@@ -109,7 +110,14 @@ export function OperationalClientTable({ rows }: Props) {
         </thead>
         <tbody className="divide-y divide-[#38435C]/50">
           {rows.map((row) => (
-            <tr key={row.id} className="hover:bg-[#38435C]/20 transition-colors">
+            <tr
+              key={row.id}
+              className={`transition-colors ${
+                row.id === syncingClientId
+                  ? 'bg-[#95BBE2]/5 animate-pulse'
+                  : 'hover:bg-[#38435C]/20'
+              }`}
+            >
               {/* Conta */}
               <td className="px-5 py-3.5">
                 <Link
