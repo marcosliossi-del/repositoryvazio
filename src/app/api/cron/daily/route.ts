@@ -9,7 +9,6 @@ import { scoreAllClientsChurnRisk } from '@/services/churn-scorer'
 import { checkBudgetWarnings } from '@/services/budget-monitor'
 import { generateAllWeeklyReports } from '@/services/weekly-report-generator'
 import { generateAllWeeklyChecklists } from '@/services/weekly-checklist-generator'
-import { sendDailyDigest } from '@/services/notifications/daily-digest'
 
 /**
  * GET /api/cron/daily  ← Vercel Cron triggers GET requests
@@ -175,18 +174,9 @@ async function runDailySync() {
     }
   }
 
-  // ── Step 8: WhatsApp daily digest ─────────────────────────────────────────
-  try {
-    const digestResult = await sendDailyDigest()
-    summary.whatsappDigest = digestResult.skipped
-      ? { ok: true, skipped: true }
-      : { ok: true, sent: digestResult.sent }
-  } catch (err) {
-    summary.whatsappDigest = {
-      ok: false,
-      error: err instanceof Error ? err.message : String(err),
-    }
-  }
+  // WhatsApp digest is sent by /api/cron/digest (runs at 08:50 BRT),
+  // 20 minutes after this cron finishes — avoids duplicate sends and
+  // ensures fresh health scores are available when the digest is built.
 
   return summary
 }
