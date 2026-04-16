@@ -11,8 +11,9 @@ import { getWeekRange, getMonthRange } from '@/lib/utils'
 /**
  * GET /api/sync/stream
  *
- * Server-Sent Events: syncs each active client one-by-one and streams
- * an event after each client completes, including updated row metrics.
+ * Server-Sent Events: syncs all active clients using a worker-pool with
+ * CONCURRENCY simultaneous clients. Streams an event for each client that
+ * completes, including updated row metrics for live table updates.
  *
  * Events:
  *   { type: 'start',    clientId, name, done, total }
@@ -22,6 +23,11 @@ import { getWeekRange, getMonthRange } from '@/lib/utils'
  *
  * Auth: ADMIN session only
  */
+
+// Number of clients processed simultaneously.
+// Each client already parallelises its own platforms (GA4 + Meta + Google Ads),
+// so CONCURRENCY=6 means up to 6×3 = 18 concurrent external API calls.
+const CONCURRENCY = 6
 export async function GET(_request: NextRequest) {
   const session = await getSession()
   if (!session || session.role !== 'ADMIN') {
@@ -60,27 +66,24 @@ export async function GET(_request: NextRequest) {
       const { start: monthStart }               = getMonthRange()
 
       let done = 0
+      const queue = [...clients] // shared mutable queue
 
-      for (const client of clients) {
+      // Process one client fully: sync all platforms → health → emit event
+      async function processClient(client: typeof clients[number]) {
         send({ type: 'start', clientId: client.id, name: client.name, done, total })
-
         try {
           const ga4Ids  = client.platformAccounts.filter(a => a.platform === 'GA4').map(a => a.id)
           const metaIds = client.platformAccounts.filter(a => a.platform === 'META_ADS').map(a => a.id)
           const gadsIds = client.platformAccounts.filter(a => a.platform === 'GOOGLE_ADS').map(a => a.id)
 
-          // All platforms in parallel for this client
           await Promise.allSettled([
             ...ga4Ids.map(id  => syncGA4Account(id)),
             ...metaIds.map(id => syncMetaAccount(id)),
             ...gadsIds.map(id => syncGoogleAdsAccount(id)),
           ])
 
-          // Recalculate health with fresh data
           const { scores } = await recalculateClientHealth(client.id)
           await dispatchAlertsForClient(client.id, scores)
-
-          // Compute updated operational row
           const row = await getClientOperationalRow(client, weekStart, weekEnd, monthStart)
 
           done++
@@ -90,6 +93,19 @@ export async function GET(_request: NextRequest) {
           send({ type: 'error', clientId: client.id, name: client.name, done, total })
         }
       }
+
+      // Worker pool: CONCURRENCY workers drain the queue concurrently
+      async function worker() {
+        while (true) {
+          const client = queue.shift()
+          if (!client) break
+          await processClient(client)
+        }
+      }
+
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, clients.length) }, worker)
+      )
 
       send({ type: 'complete', done: total, total })
       controller.close()
