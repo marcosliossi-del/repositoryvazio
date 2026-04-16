@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { healthLabels } from '@/lib/health'
@@ -20,6 +21,7 @@ export type OperationalRow = {
   overallStatus: HealthStatus | null
   budgetConsumed?: number | null
   budgetPlanned?: number | null
+  goalId?: string | null
 }
 
 interface Props {
@@ -36,28 +38,102 @@ function fmt(value: number | null, type: 'currency' | 'number' | 'roas' | 'perce
   }
 }
 
-function BudgetCell({ consumed, planned }: { consumed: number; planned: number }) {
-  const pct = planned > 0 ? Math.min((consumed / planned) * 100, 100) : 0
-  const barColor =
-    pct >= 100 ? 'bg-[#EF4444]' : pct >= 80 ? 'bg-[#EAB308]' : 'bg-[#22C55E]'
+function BudgetCell({
+  clientId,
+  consumed,
+  initialPlanned,
+}: {
+  clientId: string
+  consumed: number
+  initialPlanned: number | null
+}) {
+  const [editing, setEditing]   = useState(false)
+  const [planned, setPlanned]   = useState<number | null>(initialPlanned)
+  const [input, setInput]       = useState('')
+  const [saving, setSaving]     = useState(false)
 
-  return (
-    <div className="min-w-[110px]">
-      <div className="flex items-center justify-between mb-1 gap-1">
-        <span className="text-xs text-[#EBEBEB] whitespace-nowrap">
-          {formatCurrency(consumed)}
-        </span>
-        <span className="text-xs text-[#87919E] whitespace-nowrap">
-          / {formatCurrency(planned)}
-        </span>
-      </div>
-      <div className="h-1 bg-[#38435C] rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${barColor}`}
-          style={{ width: `${pct}%` }}
+  function startEdit() {
+    setInput(planned != null ? planned.toFixed(2) : '')
+    setEditing(true)
+  }
+
+  function cancelEdit() {
+    setEditing(false)
+  }
+
+  async function save() {
+    const num = parseFloat(input.replace(',', '.'))
+    if (isNaN(num) || num < 0) { cancelEdit(); return }
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/budget`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: num }),
+      })
+      if (res.ok) setPlanned(num)
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="min-w-[110px]">
+        <input
+          autoFocus
+          type="text"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onBlur={save}
+          onKeyDown={e => {
+            if (e.key === 'Enter') save()
+            if (e.key === 'Escape') cancelEdit()
+          }}
+          disabled={saving}
+          placeholder="0.00"
+          className="w-full bg-[#0A1E2C] border border-[#95BBE2] rounded px-2 py-0.5 text-xs text-[#EBEBEB] outline-none disabled:opacity-60"
         />
       </div>
-    </div>
+    )
+  }
+
+  if (planned != null) {
+    const pct = planned > 0 ? Math.min((consumed / planned) * 100, 100) : 0
+    const barColor = pct >= 100 ? 'bg-[#EF4444]' : pct >= 80 ? 'bg-[#EAB308]' : 'bg-[#22C55E]'
+    return (
+      <div
+        className="min-w-[110px] cursor-pointer group"
+        onClick={startEdit}
+        title="Clique para editar budget mensal"
+      >
+        <div className="flex items-center justify-between mb-1 gap-1">
+          <span className="text-xs text-[#EBEBEB] whitespace-nowrap">
+            {formatCurrency(consumed)}
+          </span>
+          <span className="text-xs text-[#87919E] group-hover:text-[#95BBE2] transition-colors whitespace-nowrap">
+            / {formatCurrency(planned)}
+          </span>
+        </div>
+        <div className="h-1 bg-[#38435C] rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${barColor}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={startEdit}
+      className="text-xs text-[#87919E] hover:text-[#95BBE2] transition-colors whitespace-nowrap"
+      title="Definir budget mensal"
+    >
+      + Definir
+    </button>
   )
 }
 
@@ -174,11 +250,11 @@ export function OperationalClientTable({ rows }: Props) {
 
               {/* Budget */}
               <td className="px-4 py-3.5">
-                {row.budgetPlanned ? (
-                  <BudgetCell consumed={row.budgetConsumed ?? 0} planned={row.budgetPlanned} />
-                ) : (
-                  <span className="text-sm text-[#87919E]">—</span>
-                )}
+                <BudgetCell
+                  clientId={row.id}
+                  consumed={row.budgetConsumed ?? 0}
+                  initialPlanned={row.budgetPlanned ?? null}
+                />
               </td>
 
               {/* CPS */}

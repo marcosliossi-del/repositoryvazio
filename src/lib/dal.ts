@@ -188,8 +188,9 @@ export type ClientOperationalRow = {
   // health
   overallStatus: HealthStatus | null
   // budget
-  budgetConsumed: number | null  // actual spend this week
-  budgetPlanned: number | null   // target spend from Goal (SPEND/WEEKLY)
+  budgetConsumed: number | null  // actual spend this month
+  budgetPlanned: number | null   // target spend from Goal (SPEND/MONTHLY)
+  goalId: string | null          // id of the MONTHLY SPEND goal, for inline editing
 }
 
 export const getClientsOperationalTable = cache(async (
@@ -203,8 +204,6 @@ export const getClientsOperationalTable = cache(async (
     canViewAll(role)
       ? { status: 'ACTIVE' }
       : { status: 'ACTIVE', assignments: { some: { userId } } }
-
-  const { start: weekStart, end: weekEnd } = getWeekRange()
 
   const clients = await prisma.client.findMany({
     where,
@@ -232,11 +231,11 @@ export const getClientsOperationalTable = cache(async (
       goals: {
         where: {
           metric: 'SPEND',
-          period: 'WEEKLY',
-          startDate: { lte: weekEnd },
-          endDate: { gte: weekStart },
+          period: 'MONTHLY',
+          startDate: { lte: today },
+          endDate: { gte: monthStart },
         },
-        select: { targetValue: true },
+        select: { id: true, targetValue: true },
         take: 1,
       },
     },
@@ -274,13 +273,8 @@ export const getClientsOperationalTable = cache(async (
         ? 'REGULAR'
         : 'OTIMO'
 
-    // Budget: consumed = this week's spend, planned = SPEND/WEEKLY goal
-    const weekSnaps = ads.filter((x) => {
-      const d = new Date(x.date)
-      return d >= weekStart && d <= weekEnd
-    })
-    const budgetConsumed = weekSnaps.reduce((s, x) => s + Number(x.spend ?? 0), 0)
     const budgetPlanned = c.goals[0] ? Number(c.goals[0].targetValue) : null
+    const goalId        = c.goals[0]?.id ?? null
 
     return {
       id: c.id,
@@ -294,8 +288,9 @@ export const getClientsOperationalTable = cache(async (
       cps,
       taxaConversao,
       overallStatus,
-      budgetConsumed: budgetConsumed > 0 ? budgetConsumed : null,
+      budgetConsumed: spend > 0 ? spend : null,
       budgetPlanned,
+      goalId,
     }
   })
 })
