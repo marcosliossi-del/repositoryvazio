@@ -7,12 +7,17 @@ const schema = z.object({
   email:       z.string().email().optional().or(z.literal('')),
   phone:       z.string().optional(),
   company:     z.string().optional(),
-  // UTMs
+  // UTMs — accept both camelCase and snake_case
   utmSource:   z.string().optional(),
+  utm_source:  z.string().optional(),
   utmMedium:   z.string().optional(),
+  utm_medium:  z.string().optional(),
   utmCampaign: z.string().optional(),
+  utm_campaign:z.string().optional(),
   utmContent:  z.string().optional(),
+  utm_content: z.string().optional(),
   utmTerm:     z.string().optional(),
+  utm_term:    z.string().optional(),
   // optional extras
   notes:       z.string().optional(),
 })
@@ -39,22 +44,53 @@ export async function POST(req: NextRequest) {
 
     const d = parsed.data
 
-    // Derive source from UTM if not sent explicitly
-    const source = d.utmSource ?? d.utmMedium ?? 'Landing Page'
+    // Normalise — accept both snake_case and camelCase
+    const utmSource   = d.utmSource   || d.utm_source   || null
+    const utmMedium   = d.utmMedium   || d.utm_medium   || null
+    const utmCampaign = d.utmCampaign || d.utm_campaign || null
+    const utmContent  = d.utmContent  || d.utm_content  || null
+    const utmTerm     = d.utmTerm     || d.utm_term     || null
+
+    const source = utmSource ?? utmMedium ?? 'Formulário'
+
+    // Deduplicate by phone — update UTMs if lead already exists
+    const phone = d.phone?.replace(/\D/g, '') || null
+    if (phone && phone.length >= 10) {
+      const existing = await prisma.agencyLead.findFirst({
+        where: { phone: { contains: phone.slice(-9) }, deletedAt: null },
+        select: { id: true },
+      })
+      if (existing) {
+        await prisma.agencyLead.update({
+          where: { id: existing.id },
+          data: {
+            utmSource:   utmSource   ?? undefined,
+            utmMedium:   utmMedium   ?? undefined,
+            utmCampaign: utmCampaign ?? undefined,
+            utmContent:  utmContent  ?? undefined,
+            utmTerm:     utmTerm     ?? undefined,
+          },
+        })
+        return NextResponse.json(
+          { ok: true, leadId: existing.id, duplicate: true },
+          { status: 200, headers: cors(origin) },
+        )
+      }
+    }
 
     const lead = await prisma.agencyLead.create({
       data: {
         name:        d.name,
         email:       d.email || null,
-        phone:       d.phone || null,
+        phone:       phone ? `+${phone}` : null,
         company:     d.company || null,
         source,
-        utmSource:   d.utmSource   || null,
-        utmMedium:   d.utmMedium   || null,
-        utmCampaign: d.utmCampaign || null,
-        utmContent:  d.utmContent  || null,
-        utmTerm:     d.utmTerm     || null,
-        notes:       d.notes       || null,
+        utmSource,
+        utmMedium,
+        utmCampaign,
+        utmContent,
+        utmTerm,
+        notes:       d.notes || null,
         status:      'NOVO',
       },
     })
