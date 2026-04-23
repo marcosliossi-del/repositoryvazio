@@ -169,18 +169,22 @@ export function WhatsAppConnect() {
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs text-[#87919E]">Client Token <span className="text-[#38435C]">(opcional — segurança do webhook)</span></label>
+            <label className="text-xs text-[#87919E]">
+              Client Token
+              <span className="text-[#EF4444] ml-0.5">*</span>
+              <span className="text-[#87919E]/60 ml-1">(obrigatório — gerado no painel Z-API)</span>
+            </label>
             <input
               value={form.clientToken}
               onChange={e => setForm(f => ({ ...f, clientToken: e.target.value }))}
-              placeholder="Token de segurança do webhook"
+              placeholder="Security → Client Token"
               type="password"
               className={inputCls}
             />
           </div>
           <button
             onClick={handleSave}
-            disabled={saving || !form.instanceId || !form.token}
+            disabled={saving || !form.instanceId || !form.token || !form.clientToken}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-[#25D366] text-white hover:bg-[#22BF5B] transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} />}

@@ -30,12 +30,12 @@ function base(config: ZApiConfig) {
 }
 
 async function req<T>(config: ZApiConfig, method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (config.clientToken) headers['client-token'] = config.clientToken
-
   const res = await fetch(`${base(config)}${path}`, {
     method,
-    headers,
+    headers: {
+      'Content-Type': 'application/json',
+      'client-token': config.clientToken,
+    },
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {

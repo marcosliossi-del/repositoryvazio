@@ -7,7 +7,7 @@ import { z } from 'zod'
 const saveSchema = z.object({
   instanceId:  z.string().min(1),
   token:       z.string().min(1),
-  clientToken: z.string().optional(),
+  clientToken: z.string().min(1),
 })
 
 /** GET — config + live status */
