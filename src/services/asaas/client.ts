@@ -17,7 +17,7 @@ export class AsaasClient {
   constructor(apiKey: string, sandbox = false) {
     this.baseUrl = sandbox
       ? 'https://sandbox.asaas.com/api/v3'
-      : 'https://api.asaas.com/api/v3'
+      : 'https://api.asaas.com/v3'
     this.headers = {
       'access_token': apiKey,
       'Content-Type': 'application/json',

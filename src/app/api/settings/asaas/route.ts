@@ -55,8 +55,9 @@ export async function POST(req: NextRequest) {
     const client  = new AsaasClient(apiKey, sandbox)
     const balance = await client.getBalance()
     return NextResponse.json({ ok: true, balance: balance.balance })
-  } catch {
-    return NextResponse.json({ ok: false, error: 'Chave inválida ou sem conexão com o Asaas' }, { status: 422 })
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ ok: false, error: detail }, { status: 422 })
   }
 }
 
