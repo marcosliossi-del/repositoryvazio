@@ -9,12 +9,6 @@ export const dynamic = 'force-dynamic'
 
 export default async function SettingsPage() {
   const session = await requireSession()
-
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL
-    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://performli.arkza.com.br')
-
-  const hasAsaasKey = !!process.env.ASAAS_API_KEY
-
   const isAdmin = session.role === 'ADMIN'
 
   return (
@@ -60,38 +54,31 @@ export default async function SettingsPage() {
             <div className="h-px flex-1 bg-[#38435C]" />
           </div>
 
+          {/* Asaas */}
+          <div className="bg-[#0A1E2C] border border-[#38435C] rounded-2xl p-6">
+            <div className="flex items-center gap-2 mb-2">
+              <Landmark size={16} className="text-[#95BBE2]" />
+              <h2 className="text-sm font-semibold text-[#EBEBEB]">Asaas</h2>
+            </div>
+            <p className="text-xs text-[#87919E] mb-5">
+              Cole sua API Key do Asaas para sincronização financeira automática.
+            </p>
+            <AsaasStatus />
+          </div>
+
           {/* WhatsApp */}
           <div className="bg-[#0A1E2C] border border-[#38435C] rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-2">
               <MessageCircle size={16} className="text-[#25D366]" />
               <h2 className="text-sm font-semibold text-[#EBEBEB]">WhatsApp</h2>
               <span className="text-[10px] text-[#87919E] border border-[#38435C] px-1.5 py-0.5 rounded-full ml-auto">
-                Evolution API
+                Z-API
               </span>
             </div>
             <p className="text-xs text-[#87919E] mb-5">
-              Mensagens recebidas de números desconhecidos viram leads no CRM automaticamente.
+              Mensagens de números desconhecidos viram leads no CRM automaticamente.
             </p>
             <WhatsAppConnect />
-          </div>
-
-          {/* Asaas */}
-          <div className="bg-[#0A1E2C] border border-[#38435C] rounded-2xl p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Landmark size={16} className="text-[#95BBE2]" />
-              <h2 className="text-sm font-semibold text-[#EBEBEB]">Asaas</h2>
-              <span className={`text-[10px] border px-1.5 py-0.5 rounded-full ml-auto ${
-                hasAsaasKey
-                  ? 'text-[#22C55E] border-[#22C55E]/30'
-                  : 'text-[#EF4444] border-[#EF4444]/30'
-              }`}>
-                {hasAsaasKey ? 'Ativo' : 'Inativo'}
-              </span>
-            </div>
-            <p className="text-xs text-[#87919E] mb-5">
-              Sincronização financeira automática via API do Asaas.
-            </p>
-            <AsaasStatus appUrl={appUrl} hasKey={hasAsaasKey} />
           </div>
         </>
       )}

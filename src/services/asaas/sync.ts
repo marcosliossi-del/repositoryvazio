@@ -45,7 +45,7 @@ async function findClientMatch(customer: AsaasCustomerDTO): Promise<string | nul
 // ─── Sync Customers ───────────────────────────────────────────────────────────
 
 async function syncCustomers() {
-  const client = getAsaasClient()
+  const client = await getAsaasClient()
   const customers = await client.getCustomers()
 
   for (const c of customers) {
@@ -100,7 +100,7 @@ function mapBillingType(bt: string) {
 }
 
 async function syncPayments() {
-  const client = getAsaasClient()
+  const client = await getAsaasClient()
   // Fetch last 365 days of payments (full history on first run; subsequent runs are fast due to upsert)
   const yearAgo = new Date()
   yearAgo.setFullYear(yearAgo.getFullYear() - 1)
@@ -153,7 +153,7 @@ async function syncPayments() {
 // ─── Sync Subscriptions ───────────────────────────────────────────────────────
 
 async function syncSubscriptions() {
-  const client = getAsaasClient()
+  const client = await getAsaasClient()
   const subs = await client.getSubscriptions()
 
   const customerMap = new Map<string, string>()
@@ -194,7 +194,7 @@ async function syncSubscriptions() {
 // ─── Sync Transfers ───────────────────────────────────────────────────────────
 
 async function syncTransfers() {
-  const client = getAsaasClient()
+  const client = await getAsaasClient()
   const yearAgo = new Date()
   yearAgo.setFullYear(yearAgo.getFullYear() - 1)
   const dateGte = yearAgo.toISOString().split('T')[0]

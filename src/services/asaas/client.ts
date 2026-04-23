@@ -1,3 +1,4 @@
+import { prisma } from '@/lib/prisma'
 import type {
   AsaasBalanceDTO,
   AsaasCustomerDTO,
@@ -7,16 +8,16 @@ import type {
   AsaasTransferDTO,
 } from './types'
 
-const BASE_URL = process.env.ASAAS_SANDBOX === 'true'
-  ? 'https://sandbox.asaas.com/api/v3'
-  : 'https://api.asaas.com/api/v3'
-
 const PAGE_SIZE = 100
 
 export class AsaasClient {
   private headers: Record<string, string>
+  private baseUrl: string
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, sandbox = false) {
+    this.baseUrl = sandbox
+      ? 'https://sandbox.asaas.com/api/v3'
+      : 'https://api.asaas.com/api/v3'
     this.headers = {
       'access_token': apiKey,
       'Content-Type': 'application/json',
@@ -24,14 +25,12 @@ export class AsaasClient {
   }
 
   private async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-    const url = new URL(`${BASE_URL}${path}`)
+    const url = new URL(`${this.baseUrl}${path}`)
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
-
     const res = await fetch(url.toString(), {
       headers: this.headers,
-      signal: AbortSignal.timeout(30_000),
+      signal:  AbortSignal.timeout(30_000),
     })
-
     if (!res.ok) {
       const body = await res.text()
       throw new Error(`Asaas API ${res.status} on ${path}: ${body}`)
@@ -39,22 +38,19 @@ export class AsaasClient {
     return res.json() as T
   }
 
-  /** Paginate through all items of a list endpoint */
   private async fetchAll<T>(path: string, extra: Record<string, string> = {}): Promise<T[]> {
     const items: T[] = []
     let offset = 0
-
     while (true) {
       const page = await this.get<AsaasListResponse<T>>(path, {
         ...extra,
-        limit: String(PAGE_SIZE),
+        limit:  String(PAGE_SIZE),
         offset: String(offset),
       })
       items.push(...page.data)
       if (!page.hasMore) break
       offset += PAGE_SIZE
     }
-
     return items
   }
 
@@ -66,7 +62,6 @@ export class AsaasClient {
     return this.fetchAll<AsaasCustomerDTO>('/customers')
   }
 
-  /** Fetch payments optionally filtered by status and date range */
   async getPayments(opts: {
     status?: string
     dueDateGte?: string
@@ -75,11 +70,11 @@ export class AsaasClient {
     paymentDateLte?: string
   } = {}): Promise<AsaasPaymentDTO[]> {
     const params: Record<string, string> = {}
-    if (opts.status)           params.status           = opts.status
-    if (opts.dueDateGte)       params.dueDateGte       = opts.dueDateGte
-    if (opts.dueDateLte)       params.dueDateLte       = opts.dueDateLte
-    if (opts.paymentDateGte)   params.paymentDateGte   = opts.paymentDateGte
-    if (opts.paymentDateLte)   params.paymentDateLte   = opts.paymentDateLte
+    if (opts.status)         params.status         = opts.status
+    if (opts.dueDateGte)     params.dueDateGte     = opts.dueDateGte
+    if (opts.dueDateLte)     params.dueDateLte     = opts.dueDateLte
+    if (opts.paymentDateGte) params.paymentDateGte = opts.paymentDateGte
+    if (opts.paymentDateLte) params.paymentDateLte = opts.paymentDateLte
     return this.fetchAll<AsaasPaymentDTO>('/payments', params)
   }
 
@@ -95,8 +90,16 @@ export class AsaasClient {
   }
 }
 
-export function getAsaasClient(): AsaasClient {
-  const key = process.env.ASAAS_API_KEY
+/** Reads API key from DB first, falls back to env var */
+export async function getAsaasClient(): Promise<AsaasClient> {
+  const rows = await prisma.integrationSetting.findMany({
+    where: { key: { in: ['ASAAS_API_KEY', 'ASAAS_SANDBOX'] } },
+  })
+  const map = Object.fromEntries(rows.map(r => [r.key, r.value]))
+
+  const key     = map.ASAAS_API_KEY     ?? process.env.ASAAS_API_KEY
+  const sandbox = (map.ASAAS_SANDBOX    ?? process.env.ASAAS_SANDBOX) === 'true'
+
   if (!key) throw new Error('ASAAS_API_KEY not configured')
-  return new AsaasClient(key)
+  return new AsaasClient(key, sandbox)
 }

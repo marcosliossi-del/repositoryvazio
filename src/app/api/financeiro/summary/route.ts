@@ -158,7 +158,7 @@ export async function GET(request: NextRequest) {
   // ── Saldo atual via Asaas API ─────────────────────────────────────────────
   let saldo = 0
   try {
-    const asaas = getAsaasClient()
+    const asaas = await getAsaasClient()
     const balance = await asaas.getBalance()
     saldo = balance.balance
   } catch { /* use 0 if API unavailable */ }
