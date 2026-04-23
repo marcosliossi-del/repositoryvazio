@@ -84,8 +84,9 @@ export class AsaasClient {
 
   async getTransfers(opts: { dateGte?: string; dateLte?: string } = {}): Promise<AsaasTransferDTO[]> {
     const params: Record<string, string> = {}
-    if (opts.dateGte) params.dateGte = opts.dateGte
-    if (opts.dateLte) params.dateLte = opts.dateLte
+    // Asaas transfers endpoint uses startDate/endDate (not dateGte/dateLte)
+    if (opts.dateGte) params.startDate = opts.dateGte
+    if (opts.dateLte) params.endDate   = opts.dateLte
     return this.fetchAll<AsaasTransferDTO>('/transfers', params)
   }
 }

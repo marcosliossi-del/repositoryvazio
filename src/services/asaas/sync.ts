@@ -101,10 +101,10 @@ function mapBillingType(bt: string) {
 
 async function syncPayments() {
   const client = await getAsaasClient()
-  // Fetch last 365 days of payments (full history on first run; subsequent runs are fast due to upsert)
-  const yearAgo = new Date()
-  yearAgo.setFullYear(yearAgo.getFullYear() - 1)
-  const dueDateGte = yearAgo.toISOString().split('T')[0]
+  // 6 months back: enough for DRE and avoids timeout on large accounts
+  const sixMonthsAgo = new Date()
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+  const dueDateGte = sixMonthsAgo.toISOString().split('T')[0]
 
   const payments = await client.getPayments({ dueDateGte })
 
@@ -113,41 +113,28 @@ async function syncPayments() {
   const allCustomers = await prisma.asaasCustomer.findMany({ select: { id: true, asaasId: true } })
   allCustomers.forEach(c => customerMap.set(c.asaasId, c.id))
 
-  for (const p of payments) {
-    if (p.deleted) continue
+  const active = payments.filter(p => !p.deleted)
+  await Promise.all(active.map(p => {
     const customerId = customerMap.get(p.customer) ?? null
-
-    await prisma.asaasPayment.upsert({
-      where: { asaasId: p.id },
-      update: {
-        status: mapPaymentStatus(p.status),
-        billingType: mapBillingType(p.billingType),
-        value: p.value,
-        netValue: p.netValue ?? null,
-        dueDate: new Date(p.dueDate),
-        paymentDate: p.paymentDate ? new Date(p.paymentDate) : null,
-        description: p.description ?? null,
-        invoiceUrl: p.invoiceUrl ?? null,
-        customerId,
-        syncedAt: new Date(),
-        updatedAt: new Date(),
-      },
-      create: {
-        asaasId: p.id,
-        status: mapPaymentStatus(p.status),
-        billingType: mapBillingType(p.billingType),
-        value: p.value,
-        netValue: p.netValue ?? null,
-        dueDate: new Date(p.dueDate),
-        paymentDate: p.paymentDate ? new Date(p.paymentDate) : null,
-        description: p.description ?? null,
-        invoiceUrl: p.invoiceUrl ?? null,
-        customerId,
-      },
+    const data = {
+      status:      mapPaymentStatus(p.status),
+      billingType: mapBillingType(p.billingType),
+      value:       p.value,
+      netValue:    p.netValue ?? null,
+      dueDate:     new Date(p.dueDate),
+      paymentDate: p.paymentDate ? new Date(p.paymentDate) : null,
+      description: p.description ?? null,
+      invoiceUrl:  p.invoiceUrl ?? null,
+      customerId,
+    }
+    return prisma.asaasPayment.upsert({
+      where:  { asaasId: p.id },
+      update: { ...data, syncedAt: new Date(), updatedAt: new Date() },
+      create: { asaasId: p.id, ...data },
     })
-  }
+  }))
 
-  return payments.length
+  return active.length
 }
 
 // ─── Sync Subscriptions ───────────────────────────────────────────────────────
@@ -160,73 +147,53 @@ async function syncSubscriptions() {
   const allCustomers = await prisma.asaasCustomer.findMany({ select: { id: true, asaasId: true } })
   allCustomers.forEach(c => customerMap.set(c.asaasId, c.id))
 
-  for (const s of subs) {
-    if (s.deleted) continue
+  const active = subs.filter(s => !s.deleted)
+  await Promise.all(active.map(s => {
     const customerId = customerMap.get(s.customer) ?? null
-
-    await prisma.asaasSubscription.upsert({
-      where: { asaasId: s.id },
-      update: {
-        status: s.status,
-        cycle: s.cycle,
-        value: s.value,
-        nextDueDate: s.nextDueDate ? new Date(s.nextDueDate) : null,
-        description: s.description ?? null,
-        customerId,
-        syncedAt: new Date(),
-        updatedAt: new Date(),
-      },
-      create: {
-        asaasId: s.id,
-        status: s.status,
-        cycle: s.cycle,
-        value: s.value,
-        nextDueDate: s.nextDueDate ? new Date(s.nextDueDate) : null,
-        description: s.description ?? null,
-        customerId,
-      },
+    const data = {
+      status:      s.status,
+      cycle:       s.cycle,
+      value:       s.value,
+      nextDueDate: s.nextDueDate ? new Date(s.nextDueDate) : null,
+      description: s.description ?? null,
+      customerId,
+    }
+    return prisma.asaasSubscription.upsert({
+      where:  { asaasId: s.id },
+      update: { ...data, syncedAt: new Date(), updatedAt: new Date() },
+      create: { asaasId: s.id, ...data },
     })
-  }
+  }))
 
-  return subs.length
+  return active.length
 }
 
 // ─── Sync Transfers ───────────────────────────────────────────────────────────
 
 async function syncTransfers() {
   const client = await getAsaasClient()
-  const yearAgo = new Date()
-  yearAgo.setFullYear(yearAgo.getFullYear() - 1)
-  const dateGte = yearAgo.toISOString().split('T')[0]
+  const sixMonthsAgo = new Date()
+  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+  const dateGte = sixMonthsAgo.toISOString().split('T')[0]
 
   const transfers = await client.getTransfers({ dateGte })
 
-  for (const t of transfers) {
-    await prisma.asaasTransfer.upsert({
-      where: { asaasId: t.id },
-      update: {
-        status: t.status,
-        value: t.value,
-        netValue: t.netValue ?? null,
-        transferDate: new Date(t.transferDate),
-        scheduleDate: t.scheduleDate ? new Date(t.scheduleDate) : null,
-        description: t.description ?? null,
-        operationType: t.operationType ?? null,
-        syncedAt: new Date(),
-        updatedAt: new Date(),
-      },
-      create: {
-        asaasId: t.id,
-        status: t.status,
-        value: t.value,
-        netValue: t.netValue ?? null,
-        transferDate: new Date(t.transferDate),
-        scheduleDate: t.scheduleDate ? new Date(t.scheduleDate) : null,
-        description: t.description ?? null,
-        operationType: t.operationType ?? null,
-      },
+  await Promise.all(transfers.map(t => {
+    const data = {
+      status:        t.status,
+      value:         t.value,
+      netValue:      t.netValue ?? null,
+      transferDate:  new Date(t.transferDate),
+      scheduleDate:  t.scheduleDate ? new Date(t.scheduleDate) : null,
+      description:   t.description ?? null,
+      operationType: t.operationType ?? null,
+    }
+    return prisma.asaasTransfer.upsert({
+      where:  { asaasId: t.id },
+      update: { ...data, syncedAt: new Date(), updatedAt: new Date() },
+      create: { asaasId: t.id, ...data },
     })
-  }
+  }))
 
   return transfers.length
 }
