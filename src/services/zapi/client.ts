@@ -30,12 +30,12 @@ function base(config: ZApiConfig) {
 }
 
 async function req<T>(config: ZApiConfig, method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (config.clientToken) headers['client-token'] = config.clientToken
+
   const res = await fetch(`${base(config)}${path}`, {
     method,
-    headers: {
-      'Content-Type':  'application/json',
-      'client-token':  config.clientToken,
-    },
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {
@@ -45,15 +45,12 @@ async function req<T>(config: ZApiConfig, method: string, path: string, body?: u
   return res.json()
 }
 
-export async function getQrCode(config: ZApiConfig): Promise<string | null> {
-  try {
-    const data = await req<{ value?: string; qrcode?: string }>(config, 'GET', '/qr-code')
-    const raw  = data.value ?? data.qrcode ?? null
-    if (!raw) return null
-    return raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`
-  } catch {
-    return null
-  }
+/** Returns the QR code data-URI, or throws with the error message */
+export async function getQrCode(config: ZApiConfig): Promise<string> {
+  const data = await req<{ value?: string; qrcode?: string }>(config, 'GET', '/qr-code')
+  const raw  = data.value ?? data.qrcode ?? ''
+  if (!raw) throw new Error('Z-API não retornou QR code — verifique se a instância está desconectada')
+  return raw.startsWith('data:') ? raw : `data:image/png;base64,${raw}`
 }
 
 export async function getStatus(config: ZApiConfig): Promise<ZApiStatus> {

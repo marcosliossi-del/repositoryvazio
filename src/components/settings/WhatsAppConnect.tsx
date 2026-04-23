@@ -14,6 +14,7 @@ interface Status {
 export function WhatsAppConnect() {
   const [status,  setStatus]  = useState<Status | null>(null)
   const [qr,      setQr]      = useState<string | null>(null)
+  const [qrError, setQrError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving,  setSaving]  = useState(false)
   const [polling, setPolling] = useState(false)
@@ -49,6 +50,7 @@ export function WhatsAppConnect() {
   async function handleSave() {
     if (!form.instanceId || !form.token) return
     setSaving(true)
+    setQrError(null)
     try {
       const res = await fetch('/api/settings/whatsapp', {
         method:  'POST',
@@ -64,10 +66,13 @@ export function WhatsAppConnect() {
   }
 
   async function fetchQr() {
-    const res = await fetch('/api/settings/whatsapp', { method: 'PATCH' })
-    if (res.ok) {
-      const data = await res.json()
-      if (data.qr) setQr(data.qr)
+    setQrError(null)
+    const res  = await fetch('/api/settings/whatsapp', { method: 'PATCH' })
+    const data = await res.json()
+    if (data.qr) {
+      setQr(data.qr)
+    } else {
+      setQrError(data.error ?? 'Não foi possível gerar o QR code')
     }
   }
 
@@ -108,6 +113,13 @@ export function WhatsAppConnect() {
           </>
         )}
       </div>
+
+      {/* QR Error */}
+      {qrError && !qr && (
+        <div className="rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/30 px-3 py-2">
+          <p className="text-xs text-[#EF4444]">{qrError}</p>
+        </div>
+      )}
 
       {/* QR Code */}
       {qr && !status?.connected && (

@@ -61,6 +61,11 @@ export async function PATCH(_req: NextRequest) {
   const config = await getConfig()
   if (!config) return NextResponse.json({ error: 'Not configured' }, { status: 400 })
 
-  const qr = await getQrCode(config)
-  return NextResponse.json({ qr })
+  try {
+    const qr = await getQrCode(config)
+    return NextResponse.json({ qr })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Erro ao buscar QR code'
+    return NextResponse.json({ error: message }, { status: 422 })
+  }
 }
