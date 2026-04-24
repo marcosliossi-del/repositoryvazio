@@ -30,10 +30,12 @@ async function getLeads() {
       ...a,
       occurredAt: a.occurredAt.toISOString(),
     })),
-    utmSource:   l.utmSource   ?? null,
-    utmMedium:   l.utmMedium   ?? null,
-    utmCampaign: l.utmCampaign ?? null,
-    utmContent:  l.utmContent  ?? null,
+    utmSource:         l.utmSource         ?? null,
+    utmMedium:         l.utmMedium         ?? null,
+    utmCampaign:       l.utmCampaign       ?? null,
+    utmContent:        l.utmContent        ?? null,
+    convertedClientId: l.convertedClientId ?? null,
+    convertedAt:       l.convertedAt ? l.convertedAt.toISOString() : null,
   }))
 }
 

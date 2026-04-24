@@ -1,0 +1,2 @@
+ALTER TABLE "AgencyLead" ADD COLUMN IF NOT EXISTS "convertedClientId" TEXT;
+ALTER TABLE "AgencyLead" ADD COLUMN IF NOT EXISTS "convertedAt" TIMESTAMP(3);

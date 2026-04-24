@@ -2,11 +2,12 @@
 
 import { useState, useCallback, useMemo } from 'react'
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd'
-import { Plus, X, ChevronRight, Activity } from 'lucide-react'
+import { Plus, X, ChevronRight, Activity, UserCheck, ExternalLink } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { LeadCard } from './LeadCard'
 import { NewLeadDialog } from './NewLeadDialog'
 import { ActivityFeed } from './ActivityFeed'
+import { ConvertToClientModal } from './ConvertToClientModal'
 import type { Lead, LeadStatus, Activity as ActivityType } from './types'
 import { KANBAN_STAGES, STAGE_CONFIG } from './types'
 
@@ -17,9 +18,10 @@ interface Props {
 export function LeadKanban({ initialLeads }: Props) {
   const [leads, setLeads] = useState<Lead[]>(initialLeads)
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingLead, setEditingLead] = useState<Lead | null>(null)
-  const [detailLead, setDetailLead] = useState<Lead | null>(null)
-  const [sourceFilter, setSourceFilter] = useState<string | null>(null)
+  const [editingLead,   setEditingLead]   = useState<Lead | null>(null)
+  const [detailLead,    setDetailLead]    = useState<Lead | null>(null)
+  const [convertLead,   setConvertLead]   = useState<Lead | null>(null)
+  const [sourceFilter,  setSourceFilter]  = useState<string | null>(null)
   const [campaignFilter, setCampaignFilter] = useState<string | null>(null)
 
   const uniqueSources = useMemo(
@@ -56,6 +58,15 @@ export function LeadKanban({ initialLeads }: Props) {
     setLeads(prev =>
       prev.map(l => (l.id === draggableId ? { ...l, status: newStatus } : l)),
     )
+
+    // If dropped onto FECHADO, open conversion modal
+    if (newStatus === 'FECHADO') {
+      const lead = leads.find(l => l.id === draggableId)
+      if (lead && !lead.convertedClientId) {
+        setConvertLead({ ...lead, status: 'FECHADO' })
+        return
+      }
+    }
 
     try {
       const res = await fetch(`/api/comercial/leads/${draggableId}`, {
@@ -256,6 +267,26 @@ export function LeadKanban({ initialLeads }: Props) {
         onSave={lead => { handleSave(lead); setDialogOpen(false) }}
       />
 
+      {/* Convert to client modal */}
+      {convertLead && (
+        <ConvertToClientModal
+          lead={convertLead}
+          onClose={() => setConvertLead(null)}
+          onConverted={(clientId, clientSlug) => {
+            // Mark lead as converted in local state
+            setLeads(prev => prev.map(l =>
+              l.id === convertLead.id
+                ? { ...l, status: 'FECHADO', convertedClientId: clientId }
+                : l,
+            ))
+            if (detailLead?.id === convertLead.id) {
+              setDetailLead(prev => prev ? { ...prev, status: 'FECHADO', convertedClientId: clientId } : prev)
+            }
+            setConvertLead(null)
+          }}
+        />
+      )}
+
       {/* Lead detail slide-over */}
       {detailLead && (
         <div className="fixed inset-0 z-40 flex" onClick={() => setDetailLead(null)}>
@@ -346,12 +377,38 @@ export function LeadKanban({ initialLeads }: Props) {
                 </div>
               )}
 
+              {/* Convert to client — shown when FECHADO and not yet converted */}
+              {detailLead.status === 'FECHADO' && !detailLead.convertedClientId && (
+                <button
+                  onClick={() => setConvertLead(detailLead)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#22C55E]/15 border border-[#22C55E]/40 text-sm font-semibold text-[#22C55E] hover:bg-[#22C55E]/25 transition-colors"
+                >
+                  <UserCheck size={14} />
+                  Converter em cliente
+                </button>
+              )}
+
+              {/* Already converted */}
+              {detailLead.convertedClientId && (
+                <a
+                  href={`/clients`}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-[#38435C] text-xs text-[#22C55E] hover:border-[#22C55E]/40 transition-colors"
+                >
+                  <ExternalLink size={12} />
+                  Ver cliente criado
+                </a>
+              )}
+
               {/* Move to next stage shortcut */}
               {KANBAN_STAGES.indexOf(detailLead.status) < KANBAN_STAGES.length - 1 && (
                 <button
                   onClick={async () => {
-                    const nextIdx = KANBAN_STAGES.indexOf(detailLead.status) + 1
+                    const nextIdx    = KANBAN_STAGES.indexOf(detailLead.status) + 1
                     const nextStatus = KANBAN_STAGES[nextIdx]
+                    if (nextStatus === 'FECHADO' && !detailLead.convertedClientId) {
+                      setConvertLead({ ...detailLead, status: 'FECHADO' })
+                      return
+                    }
                     const res = await fetch(`/api/comercial/leads/${detailLead.id}`, {
                       method: 'PATCH',
                       headers: { 'Content-Type': 'application/json' },

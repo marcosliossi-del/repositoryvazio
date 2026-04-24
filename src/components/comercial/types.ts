@@ -36,15 +36,17 @@ export interface Lead {
   probability:     number | null
   expectedCloseAt: string | null
   closedAt:        string | null
-  lostReason:      string | null
-  notes:           string | null
-  createdAt:       string
-  updatedAt:       string
-  activities:      Activity[]
-  utmSource:       string | null
-  utmMedium:       string | null
-  utmCampaign:     string | null
-  utmContent:      string | null
+  lostReason:        string | null
+  notes:             string | null
+  convertedClientId: string | null
+  convertedAt:       string | null
+  createdAt:         string
+  updatedAt:         string
+  activities:        Activity[]
+  utmSource:         string | null
+  utmMedium:         string | null
+  utmCampaign:       string | null
+  utmContent:        string | null
 }
 
 export const STAGE_CONFIG: Record<
